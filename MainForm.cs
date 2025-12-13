@@ -797,10 +797,36 @@ namespace Ntk.Mikrotik.Tools
                             _dgvResults.Refresh();
                             _dgvResults.Update();
                             
-                            // Scroll to the last row
-                            if (_dgvResults.Rows.Count > 0)
+                            // Scroll to the last row safely
+                            try
                             {
-                                _dgvResults.FirstDisplayedScrollingRowIndex = _dgvResults.Rows.Count - 1;
+                                if (_dgvResults.Rows.Count > 0)
+                                {
+                                    var lastRowIndex = _dgvResults.Rows.Count - 1;
+                                    // Ensure the row index is valid
+                                    if (lastRowIndex >= 0 && lastRowIndex < _dgvResults.Rows.Count)
+                                    {
+                                        // Use BeginInvoke to ensure DataGridView is fully rendered
+                                        this.BeginInvoke((MethodInvoker)delegate
+                                        {
+                                            try
+                                            {
+                                                if (_dgvResults.Rows.Count > lastRowIndex)
+                                                {
+                                                    _dgvResults.FirstDisplayedScrollingRowIndex = lastRowIndex;
+                                                }
+                                            }
+                                            catch
+                                            {
+                                                // Ignore scroll errors - not critical
+                                            }
+                                        });
+                                    }
+                                }
+                            }
+                            catch
+                            {
+                                // Ignore scroll errors - not critical
                             }
                         }
                     });
@@ -877,11 +903,36 @@ namespace Ntk.Mikrotik.Tools
                         _dgvResults.Update();
                         
                         // Scroll to the last row to show the new result
-                        if (_dgvResults.Rows.Count > 0)
+                        try
                         {
-                            var lastRowIndex = _dgvResults.Rows.Count - 1;
-                            _dgvResults.FirstDisplayedScrollingRowIndex = lastRowIndex;
-                            _dgvResults.Rows[lastRowIndex].Selected = true;
+                            if (_dgvResults.Rows.Count > 0)
+                            {
+                                var lastRowIndex = _dgvResults.Rows.Count - 1;
+                                // Ensure the row index is valid
+                                if (lastRowIndex >= 0 && lastRowIndex < _dgvResults.Rows.Count)
+                                {
+                                    // Use BeginInvoke to ensure DataGridView is fully rendered
+                                    this.BeginInvoke((MethodInvoker)delegate
+                                    {
+                                        try
+                                        {
+                                            if (_dgvResults != null && _dgvResults.Rows.Count > lastRowIndex)
+                                            {
+                                                _dgvResults.FirstDisplayedScrollingRowIndex = lastRowIndex;
+                                                _dgvResults.Rows[lastRowIndex].Selected = true;
+                                            }
+                                        }
+                                        catch
+                                        {
+                                            // Ignore scroll errors - not critical
+                                        }
+                                    });
+                                }
+                            }
+                        }
+                        catch
+                        {
+                            // Ignore scroll errors - not critical
                         }
                     }
                 });
