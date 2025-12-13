@@ -58,7 +58,7 @@ namespace Ntk.Mikrotik.Tools
             var topPanel = new Panel
             {
                 Dock = DockStyle.Top,
-                Height = 80,
+                Height = 100, // Increased height to accommodate spacing
                 Padding = new Padding(10)
             };
 
@@ -67,9 +67,10 @@ namespace Ntk.Mikrotik.Tools
             {
                 Text = "آماده",
                 Dock = DockStyle.Top,
-                Height = 25,
+                Height = 30, // Increased height for better visibility
                 TextAlign = System.Drawing.ContentAlignment.MiddleLeft,
-                Font = new System.Drawing.Font("Tahoma", 9F, System.Drawing.FontStyle.Bold)
+                Font = new System.Drawing.Font("Tahoma", 9F, System.Drawing.FontStyle.Bold),
+                Margin = new Padding(0, 10, 0, 0) // Add top margin for spacing from progress bar
             };
 
             // Progress bar
@@ -77,7 +78,8 @@ namespace Ntk.Mikrotik.Tools
             {
                 Dock = DockStyle.Top,
                 Height = 25,
-                Style = ProgressBarStyle.Continuous
+                Style = ProgressBarStyle.Continuous,
+                Margin = new Padding(0, 5, 0, 0) // Add top margin for spacing from buttons
             };
 
             // Buttons panel
@@ -656,12 +658,16 @@ namespace Ntk.Mikrotik.Tools
                 if (connected)
                 {
                     _isConnected = true;
-                    if (_lblStatus != null) _lblStatus.Text = "اتصال برقرار شد.";
+                    if (_lblStatus != null) _lblStatus.Text = "اتصال برقرار شد. در حال دریافت اطلاعات پایه...";
                     if (btnConnect != null) btnConnect.Enabled = false;
                     if (btnDisconnect != null) btnDisconnect.Enabled = true;
                     if (_btnStart != null) _btnStart.Enabled = true;
                     
-                    MessageBox.Show("اتصال به روتر با موفقیت برقرار شد.", "موفق", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                    // Collect and display base status immediately after connection
+                    await CollectAndDisplayBaseStatusAsync(settings);
+                    
+                    if (_lblStatus != null) _lblStatus.Text = "اتصال برقرار شد.";
+                    MessageBox.Show("اتصال به روتر با موفقیت برقرار شد و اطلاعات پایه دریافت شد.", "موفق", MessageBoxButtons.OK, MessageBoxIcon.Information);
                 }
                 else
                 {
@@ -712,6 +718,110 @@ namespace Ntk.Mikrotik.Tools
             catch (Exception ex)
             {
                 MessageBox.Show($"خطا در قطع اتصال: {ex.Message}", "خطا", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
+        }
+
+        /// <summary>
+        /// Collects and displays base status information immediately after connection
+        /// </summary>
+        private async Task CollectAndDisplayBaseStatusAsync(ScanSettings settings)
+        {
+            try
+            {
+                if (_sshClient == null || !_sshClient.IsConnected)
+                {
+                    return;
+                }
+
+                // Check if we already have a base result (to avoid duplicates on reconnection)
+                bool hasBaseResult = false;
+                this.Invoke((MethodInvoker)delegate
+                {
+                    hasBaseResult = _currentResults.Any(r => r.Status == "base");
+                    if (hasBaseResult)
+                    {
+                        // Remove old base result before adding new one
+                        var oldBase = _currentResults.FirstOrDefault(r => r.Status == "base");
+                        if (oldBase != null)
+                        {
+                            _currentResults.Remove(oldBase);
+                        }
+                    }
+                });
+
+                // Create a temporary scanner instance to use its GetCurrentStatusAsync method
+                var tempScanner = new FrequencyScanner(settings, _sshClient, _jsonService);
+                
+                // Subscribe to status updates
+                tempScanner.StatusUpdate += (s, msg) =>
+                {
+                    this.Invoke((MethodInvoker)delegate
+                    {
+                        if (_lblStatus != null)
+                        {
+                            _lblStatus.Text = msg;
+                        }
+                    });
+                };
+
+                // Subscribe to terminal data
+                tempScanner.TerminalData += (s, data) =>
+                {
+                    this.Invoke((MethodInvoker)delegate
+                    {
+                        if (_txtTerminalLog != null)
+                        {
+                            _txtTerminalLog.AppendText($"[{DateTime.Now:HH:mm:ss}] {data}\r\n");
+                            _txtTerminalLog.SelectionStart = _txtTerminalLog.Text.Length;
+                            _txtTerminalLog.ScrollToCaret();
+                        }
+                    });
+                };
+
+                // Get current status
+                var baseResult = await tempScanner.GetCurrentStatusAsync();
+                
+                if (baseResult != null)
+                {
+                    baseResult.Status = "base";
+                    baseResult.ScanTime = DateTime.Now;
+
+                    // Add to results list
+                    this.Invoke((MethodInvoker)delegate
+                    {
+                        _currentResults.Add(baseResult);
+                        
+                        // Refresh DataGridView
+                        if (_dgvResults != null)
+                        {
+                            _dgvResults.Refresh();
+                            _dgvResults.Update();
+                            
+                            // Scroll to the last row
+                            if (_dgvResults.Rows.Count > 0)
+                            {
+                                _dgvResults.FirstDisplayedScrollingRowIndex = _dgvResults.Rows.Count - 1;
+                            }
+                        }
+                    });
+
+                    // Save to JSON file (only if this is a new scan, not a reconnection)
+                    if (!hasBaseResult)
+                    {
+                        _jsonService.StartNewScan();
+                    }
+                    _jsonService.SaveSingleResult(baseResult, settings);
+                }
+            }
+            catch (Exception ex)
+            {
+                this.Invoke((MethodInvoker)delegate
+                {
+                    if (_lblStatus != null)
+                    {
+                        _lblStatus.Text = $"خطا در دریافت اطلاعات پایه: {ex.Message}";
+                    }
+                });
             }
         }
 

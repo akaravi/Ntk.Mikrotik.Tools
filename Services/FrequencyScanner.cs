@@ -342,32 +342,64 @@ namespace Ntk.Mikrotik.Tools.Services
                 {
                     var regTableCommand = _settings.CommandGetRegistrationTable
                         .Replace("{interface}", _settings.InterfaceName);
+                    OnStatusUpdate($"در حال دریافت اطلاعات registration table...");
+                    OnTerminalData($"Command: {regTableCommand}");
                     var regTable = await _sshClient.SendCommandAsync(regTableCommand, 8000);
                     
-                    // Parse local CCQ from registration table (if not found in monitor)
-                    if (!result.CCQ.HasValue)
+                    if (string.IsNullOrWhiteSpace(regTable))
                     {
-                        result.CCQ = ParseValue(regTable, "ccq");
+                        OnStatusUpdate("⚠️ هشدار: registration table خالی است. ممکن است آنتن remote متصل نباشد.");
+                        OnTerminalData("Response: (empty)");
                     }
-                    
-                    // Parse remote antenna information from registration table
-                    // Registration table shows connected remote antennas
-                    if (!string.IsNullOrWhiteSpace(regTable))
+                    else
                     {
-                        // Get first connected remote antenna info
-                        result.RemoteMacAddress = ParseStringValue(regTable, "mac-address");
-                        result.RemoteIdentity = ParseStringValue(regTable, "identity");
-                        result.RemoteSignalStrength = ParseValue(regTable, "signal-strength");
-                        result.RemoteSignalToNoiseRatio = ParseValue(regTable, "signal-to-noise");
-                        result.RemoteTxRate = ParseValue(regTable, "tx-rate");
-                        result.RemoteRxRate = ParseValue(regTable, "rx-rate");
-                        result.RemoteCCQ = ParseValue(regTable, "ccq");
-                        result.RemoteTxSignalStrength = ParseValue(regTable, "tx-signal-strength");
-                        result.RemoteRxSignalStrength = ParseValue(regTable, "rx-signal-strength");
+                        OnStatusUpdate($"✓ Registration table دریافت شد ({regTable.Length} کاراکتر)");
+                        OnTerminalData($"Registration Table Response:\n{regTable}");
+                        
+                        // Parse remote antenna information from registration table
+                        // Registration table may contain multiple entries, we need to parse each entry separately
+                        var remoteAntennaInfo = ParseRegistrationTableEntry(regTable);
+                        
+                        if (remoteAntennaInfo != null)
+                        {
+                            result.RemoteMacAddress = remoteAntennaInfo.MacAddress;
+                            result.RemoteIdentity = remoteAntennaInfo.Identity;
+                            result.RemoteSignalStrength = remoteAntennaInfo.SignalStrength;
+                            result.RemoteSignalToNoiseRatio = remoteAntennaInfo.SignalToNoiseRatio;
+                            result.RemoteTxRate = remoteAntennaInfo.TxRate;
+                            result.RemoteRxRate = remoteAntennaInfo.RxRate;
+                            result.RemoteCCQ = remoteAntennaInfo.CCQ;
+                            result.RemoteTxSignalStrength = remoteAntennaInfo.TxSignalStrength;
+                            result.RemoteRxSignalStrength = remoteAntennaInfo.RxSignalStrength;
+                            
+                            var infoSummary = $"MAC={remoteAntennaInfo.MacAddress ?? "N/A"}, " +
+                                            $"Identity={remoteAntennaInfo.Identity ?? "N/A"}, " +
+                                            $"Signal={remoteAntennaInfo.SignalStrength?.ToString("F1") ?? "N/A"}dBm, " +
+                                            $"SNR={remoteAntennaInfo.SignalToNoiseRatio?.ToString("F1") ?? "N/A"}dB, " +
+                                            $"TxRate={remoteAntennaInfo.TxRate?.ToString("F1") ?? "N/A"}Mbps, " +
+                                            $"RxRate={remoteAntennaInfo.RxRate?.ToString("F1") ?? "N/A"}Mbps, " +
+                                            $"CCQ={remoteAntennaInfo.CCQ?.ToString("F1") ?? "N/A"}%";
+                            
+                            OnStatusUpdate($"✓ اطلاعات remote antenna دریافت شد: {infoSummary}");
+                            OnTerminalData($"Parsed Remote Antenna Info: {infoSummary}");
+                        }
+                        else
+                        {
+                            OnStatusUpdate("⚠️ هشدار: نتوانستیم اطلاعات remote antenna را از registration table استخراج کنیم.");
+                            OnTerminalData("⚠️ Warning: Could not parse remote antenna info from registration table.");
+                        }
+                        
+                        // Parse local CCQ from registration table (if not found in monitor)
+                        if (!result.CCQ.HasValue)
+                        {
+                            result.CCQ = ParseValue(regTable, "ccq");
+                        }
                     }
                 }
-                catch
+                catch (Exception ex)
                 {
+                    OnStatusUpdate($"⚠️ خطا در دریافت registration table: {ex.Message}");
+                    OnTerminalData($"Error getting registration table: {ex.Message}");
                     // Registration table might not be available, continue
                 }
 
@@ -534,6 +566,235 @@ namespace Ntk.Mikrotik.Tools.Services
                         }
                     }
                 }
+            }
+            return null;
+        }
+
+        // Helper class for remote antenna information
+        private class RemoteAntennaInfo
+        {
+            public string? MacAddress { get; set; }
+            public string? Identity { get; set; }
+            public double? SignalStrength { get; set; }
+            public double? SignalToNoiseRatio { get; set; }
+            public double? TxRate { get; set; }
+            public double? RxRate { get; set; }
+            public double? CCQ { get; set; }
+            public double? TxSignalStrength { get; set; }
+            public double? RxSignalStrength { get; set; }
+        }
+
+        /// <summary>
+        /// Parses registration table output to extract remote antenna information.
+        /// Registration table may contain multiple entries, we parse the first valid entry.
+        /// RouterOS registration table can be in different formats:
+        /// 1. Multi-line format: "key: value" pairs (one per line)
+        /// 2. Single-line format: "key=value key2=value2" (all in one line)
+        /// 3. Tabular format: space-separated columns
+        /// </summary>
+        private RemoteAntennaInfo? ParseRegistrationTableEntry(string regTable)
+        {
+            if (string.IsNullOrWhiteSpace(regTable))
+                return null;
+
+            var info = new RemoteAntennaInfo();
+            var lines = regTable.Split(new[] { '\n', '\r' }, StringSplitOptions.RemoveEmptyEntries);
+            
+            bool foundAnyData = false;
+            
+            foreach (var line in lines)
+            {
+                var trimmedLine = line.Trim();
+                if (string.IsNullOrEmpty(trimmedLine))
+                    continue;
+
+                // Skip comment lines and command prompts
+                if (trimmedLine.StartsWith(";;;") || trimmedLine.StartsWith(">") || 
+                    trimmedLine.StartsWith("#") || trimmedLine.StartsWith("@"))
+                    continue;
+
+                // Skip header lines (Flags, Interface, etc.)
+                if (trimmedLine.StartsWith("Flags") || trimmedLine.StartsWith("Interface") ||
+                    trimmedLine.StartsWith("MAC") || trimmedLine.StartsWith("Identity"))
+                {
+                    continue;
+                }
+
+                // If line starts with a number (like "0" or "1"), it might be entry number, skip it
+                if (trimmedLine.Length > 0 && char.IsDigit(trimmedLine[0]) && trimmedLine.Length < 5)
+                {
+                    continue;
+                }
+
+                // Try to parse key-value pairs with different separators
+                // First, try to split by spaces if it looks like tabular format
+                var parts = trimmedLine.Split(new[] { ' ', '\t' }, StringSplitOptions.RemoveEmptyEntries);
+                
+                // If we have many parts, it might be tabular format - try to match by position or key-value
+                if (parts.Length > 3)
+                {
+                    // Try to find key-value pairs within the line
+                    for (int i = 0; i < parts.Length - 1; i++)
+                    {
+                        var key = parts[i].ToLower();
+                        var value = parts[i + 1];
+                        
+                        ParseKeyValuePair(key, value, info, ref foundAnyData);
+                    }
+                }
+                else
+                {
+                    // Standard key-value format with ":" or "="
+                    string[] separators = { ":", "=" };
+                    foreach (var separator in separators)
+                    {
+                        var sepIndex = trimmedLine.IndexOf(separator);
+                        if (sepIndex > 0)
+                        {
+                            var key = trimmedLine.Substring(0, sepIndex).Trim().ToLower();
+                            var value = trimmedLine.Substring(sepIndex + separator.Length).Trim();
+                            ParseKeyValuePair(key, value, info, ref foundAnyData);
+                        }
+                    }
+                }
+            }
+
+            // Return info only if we found at least some data
+            return foundAnyData ? info : null;
+        }
+
+        /// <summary>
+        /// Helper method to parse a key-value pair and populate RemoteAntennaInfo
+        /// </summary>
+        private void ParseKeyValuePair(string key, string value, RemoteAntennaInfo info, ref bool foundAnyData)
+        {
+            if (string.IsNullOrEmpty(key) || string.IsNullOrEmpty(value))
+                return;
+
+            key = key.Trim().ToLower();
+            value = value.Trim();
+
+            // Remove quotes if present
+            if (value.StartsWith("\"") && value.EndsWith("\""))
+                value = value.Substring(1, value.Length - 2);
+
+            // Parse mac-address
+            if (key.Contains("mac-address") || key == "mac")
+            {
+                info.MacAddress = value;
+                foundAnyData = true;
+            }
+            // Parse identity
+            else if (key.Contains("identity"))
+            {
+                info.Identity = value;
+                foundAnyData = true;
+            }
+            // Parse signal-strength
+            else if (key.Contains("signal-strength") || (key.Contains("signal") && !key.Contains("noise") && !key.Contains("tx") && !key.Contains("rx")))
+            {
+                var numValue = ParseNumericValue(value);
+                if (numValue.HasValue)
+                {
+                    info.SignalStrength = numValue;
+                    foundAnyData = true;
+                }
+            }
+            // Parse signal-to-noise
+            else if (key.Contains("signal-to-noise") || key.Contains("snr"))
+            {
+                var numValue = ParseNumericValue(value);
+                if (numValue.HasValue)
+                {
+                    info.SignalToNoiseRatio = numValue;
+                    foundAnyData = true;
+                }
+            }
+            // Parse tx-rate
+            else if (key.Contains("tx-rate"))
+            {
+                var numValue = ParseNumericValue(value);
+                if (numValue.HasValue)
+                {
+                    info.TxRate = numValue;
+                    foundAnyData = true;
+                }
+            }
+            // Parse rx-rate
+            else if (key.Contains("rx-rate"))
+            {
+                var numValue = ParseNumericValue(value);
+                if (numValue.HasValue)
+                {
+                    info.RxRate = numValue;
+                    foundAnyData = true;
+                }
+            }
+            // Parse ccq
+            else if (key.Contains("ccq"))
+            {
+                var numValue = ParseNumericValue(value);
+                if (numValue.HasValue)
+                {
+                    info.CCQ = numValue;
+                    foundAnyData = true;
+                }
+            }
+            // Parse tx-signal-strength
+            else if (key.Contains("tx-signal-strength") || (key.Contains("tx-signal") && !key.Contains("rx")))
+            {
+                var numValue = ParseNumericValue(value);
+                if (numValue.HasValue)
+                {
+                    info.TxSignalStrength = numValue;
+                    foundAnyData = true;
+                }
+            }
+            // Parse rx-signal-strength
+            else if (key.Contains("rx-signal-strength") || (key.Contains("rx-signal") && !key.Contains("tx")))
+            {
+                var numValue = ParseNumericValue(value);
+                if (numValue.HasValue)
+                {
+                    info.RxSignalStrength = numValue;
+                    foundAnyData = true;
+                }
+            }
+        }
+
+        /// <summary>
+        /// Parses a numeric value from a string, handling units like "dBm", "Mbps", "%"
+        /// </summary>
+        private double? ParseNumericValue(string value)
+        {
+            if (string.IsNullOrEmpty(value))
+                return null;
+
+            // Remove common units
+            value = value.Replace("dBm", "").Replace("dB", "").Replace("Mbps", "").Replace("Mbps", "").Replace("%", "").Trim();
+
+            // Try to parse as double
+            if (double.TryParse(value, System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out double result))
+            {
+                return result;
+            }
+
+            return null;
+        }
+
+        /// <summary>
+        /// Extracts value from a line after a separator (for string values)
+        /// </summary>
+        private string? ExtractValue(string line, string separator)
+        {
+            var index = line.IndexOf(separator);
+            if (index >= 0 && index < line.Length - 1)
+            {
+                var valueStr = line.Substring(index + separator.Length).Trim();
+                // Remove quotes if present
+                if (valueStr.StartsWith("\"") && valueStr.EndsWith("\""))
+                    valueStr = valueStr.Substring(1, valueStr.Length - 2);
+                return valueStr;
             }
             return null;
         }
