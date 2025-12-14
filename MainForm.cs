@@ -20,6 +20,9 @@ namespace Ntk.Mikrotik.Tools
         private MikroTikSshClient? _sshClient;
         private bool _isConnected = false;
         
+        // Base settings to restore after scan
+        private FrequencyScanResult? _baseSettings;
+        
         // Control references
         private TextBox? _txtRouterIp;
         private NumericUpDown? _txtSshPort;
@@ -96,15 +99,18 @@ namespace Ntk.Mikrotik.Tools
             
             var btnConnect = new Button { Text = "اتصال", Width = 100, Height = 25, Name = "btnConnect" };
             var btnDisconnect = new Button { Text = "قطع اتصال", Width = 100, Height = 25, Enabled = false, Name = "btnDisconnect" };
+            var btnTestReconnect = new Button { Text = "تست اتصال مجدد", Width = 120, Height = 25, Name = "btnTestReconnect" };
 
             // Add event handlers
             btnConnect.Click += async (s, e) => await ConnectToRouterAsync();
             btnDisconnect.Click += (s, e) => DisconnectFromRouter();
             _btnStart.Click += async (s, e) => await StartScanAsync();
             _btnStop.Click += (s, e) => StopScan();
+            btnTestReconnect.Click += async (s, e) => await TestReconnectionAsync();
 
             buttonsPanel.Controls.Add(_btnStop);
             buttonsPanel.Controls.Add(_btnStart);
+            buttonsPanel.Controls.Add(btnTestReconnect);
             buttonsPanel.Controls.Add(btnDisconnect);
             buttonsPanel.Controls.Add(btnConnect);
 
@@ -785,6 +791,14 @@ namespace Ntk.Mikrotik.Tools
                 {
                     baseResult.Status = "base";
                     baseResult.ScanTime = DateTime.Now;
+                    
+                    // Save base settings for restoration later
+                    _baseSettings = new FrequencyScanResult
+                    {
+                        Frequency = baseResult.Frequency,
+                        WirelessProtocol = baseResult.WirelessProtocol,
+                        ChannelWidth = baseResult.ChannelWidth
+                    };
 
                     // Add to results list
                     this.Invoke((MethodInvoker)delegate
@@ -987,20 +1001,193 @@ namespace Ntk.Mikrotik.Tools
             }
             finally
             {
+                // Restore base settings after scan completes
+                await RestoreBaseSettingsAsync();
+                
                 if (_btnStart != null) _btnStart.Enabled = true;
                 if (_btnStop != null) _btnStop.Enabled = false;
                 if (_progressBar != null) _progressBar.Value = 0;
             }
         }
 
-        private void StopScan()
+        private async void StopScan()
         {
             _scanner?.StopScan();
             _cancellationTokenSource?.Cancel();
             
+            // Restore base settings
+            await RestoreBaseSettingsAsync();
+            
             if (_btnStart != null) _btnStart.Enabled = true;
             if (_btnStop != null) _btnStop.Enabled = false;
             if (_lblStatus != null) _lblStatus.Text = "متوقف شد";
+        }
+        
+        /// <summary>
+        /// Restores router settings to base configuration
+        /// </summary>
+        private async Task RestoreBaseSettingsAsync()
+        {
+            if (_baseSettings == null || _sshClient == null || !_sshClient.IsConnected)
+            {
+                return;
+            }
+
+            try
+            {
+                var settings = GetSettingsFromForm();
+                
+                if (_lblStatus != null)
+                {
+                    _lblStatus.Text = "در حال بازگردانی تنظیمات به حالت اولیه...";
+                }
+
+                // Restore frequency
+                if (_baseSettings.Frequency > 0)
+                {
+                    var setFreqCommand = settings.CommandSetFrequency
+                        .Replace("{interface}", settings.InterfaceName)
+                        .Replace("{frequency}", _baseSettings.Frequency.ToString(System.Globalization.CultureInfo.InvariantCulture));
+                    
+                    await _sshClient.SendCommandAsync(setFreqCommand);
+                }
+
+                // Restore wireless-protocol
+                if (!string.IsNullOrEmpty(_baseSettings.WirelessProtocol))
+                {
+                    var setProtocolCommand = $"/interface wireless set \"{settings.InterfaceName}\" wireless-protocol={_baseSettings.WirelessProtocol}";
+                    await _sshClient.SendCommandAsync(setProtocolCommand);
+                }
+
+                // Restore channel-width
+                if (!string.IsNullOrEmpty(_baseSettings.ChannelWidth))
+                {
+                    var setChannelWidthCommand = $"/interface wireless set \"{settings.InterfaceName}\" channel-width={_baseSettings.ChannelWidth}";
+                    await _sshClient.SendCommandAsync(setChannelWidthCommand);
+                }
+
+                if (_lblStatus != null)
+                {
+                    _lblStatus.Text = "تنظیمات به حالت اولیه بازگردانده شد.";
+                }
+            }
+            catch (Exception ex)
+            {
+                if (_lblStatus != null)
+                {
+                    _lblStatus.Text = $"خطا در بازگردانی تنظیمات: {ex.Message}";
+                }
+            }
+        }
+        
+        /// <summary>
+        /// Tests automatic reconnection for up to 1 minute
+        /// </summary>
+        private async Task TestReconnectionAsync()
+        {
+            if (_sshClient == null || !_sshClient.IsConnected)
+            {
+                MessageBox.Show("لطفاً ابتدا به روتر متصل شوید.", "خطا", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                return;
+            }
+
+            var settings = GetSettingsFromForm();
+            var endTime = DateTime.Now.AddMinutes(1);
+            var testCount = 0;
+            var successCount = 0;
+            var failCount = 0;
+
+            if (_lblStatus != null)
+            {
+                _lblStatus.Text = "شروع تست اتصال مجدد (1 دقیقه)...";
+            }
+
+            try
+            {
+                while (DateTime.Now < endTime)
+                {
+                    testCount++;
+                    
+                    // Disconnect
+                    _sshClient.Disconnect();
+                    await Task.Delay(1000); // Wait 1 second
+                    
+                    // Try to reconnect automatically (by sending a command which should trigger auto-reconnect)
+                    try
+                    {
+                        var testCommand = ":put \"reconnection-test\"";
+                        var response = await _sshClient.SendCommandAsync(testCommand, 5000);
+                        
+                        if (_sshClient.IsConnected && !string.IsNullOrEmpty(response))
+                        {
+                            successCount++;
+                            if (_txtTerminalLog != null)
+                            {
+                                _txtTerminalLog.AppendText($"[{DateTime.Now:HH:mm:ss}] تست {testCount}: اتصال مجدد موفق ✓\r\n");
+                                _txtTerminalLog.SelectionStart = _txtTerminalLog.Text.Length;
+                                _txtTerminalLog.ScrollToCaret();
+                            }
+                        }
+                        else
+                        {
+                            failCount++;
+                            if (_txtTerminalLog != null)
+                            {
+                                _txtTerminalLog.AppendText($"[{DateTime.Now:HH:mm:ss}] تست {testCount}: اتصال مجدد ناموفق ✗\r\n");
+                                _txtTerminalLog.SelectionStart = _txtTerminalLog.Text.Length;
+                                _txtTerminalLog.ScrollToCaret();
+                            }
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        failCount++;
+                        if (_txtTerminalLog != null)
+                        {
+                            _txtTerminalLog.AppendText($"[{DateTime.Now:HH:mm:ss}] تست {testCount}: خطا - {ex.Message}\r\n");
+                            _txtTerminalLog.SelectionStart = _txtTerminalLog.Text.Length;
+                            _txtTerminalLog.ScrollToCaret();
+                        }
+                    }
+                    
+                    // Wait a bit before next test
+                    await Task.Delay(2000); // Wait 2 seconds between tests
+                    
+                    if (_lblStatus != null)
+                    {
+                        var remaining = (endTime - DateTime.Now).TotalSeconds;
+                        var remainingSeconds = (int)Math.Max(0, remaining);
+                        _lblStatus.Text = $"تست اتصال مجدد: {testCount} تست ({successCount} موفق، {failCount} ناموفق) - {remainingSeconds} ثانیه باقی مانده";
+                    }
+                }
+
+                // Final summary
+                var successRate = testCount > 0 ? (successCount * 100.0 / testCount) : 0;
+                var summary = $"تست اتصال مجدد تکمیل شد:\nتعداد کل تست‌ها: {testCount}\nموفق: {successCount}\nناموفق: {failCount}\nنرخ موفقیت: {successRate:F1}%";
+                
+                if (_txtTerminalLog != null)
+                {
+                    _txtTerminalLog.AppendText($"[{DateTime.Now:HH:mm:ss}] {summary}\r\n");
+                    _txtTerminalLog.SelectionStart = _txtTerminalLog.Text.Length;
+                    _txtTerminalLog.ScrollToCaret();
+                }
+
+                if (_lblStatus != null)
+                {
+                    var successRate2 = testCount > 0 ? (successCount * 100.0 / testCount) : 0;
+                    _lblStatus.Text = $"تست اتصال مجدد: {successCount}/{testCount} موفق ({successRate2:F1}%)";
+                }
+
+                MessageBox.Show(summary, "نتیجه تست اتصال مجدد", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            }
+            catch (Exception ex)
+            {
+                if (_lblStatus != null)
+                {
+                    _lblStatus.Text = $"خطا در تست اتصال مجدد: {ex.Message}";
+                }
+                MessageBox.Show($"خطا در تست اتصال مجدد: {ex.Message}", "خطا", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
         }
 
         private void LoadPreviousResults()
