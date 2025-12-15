@@ -25,13 +25,49 @@ namespace Ntk.Mikrotik.Tools.Models
         // Remote Antenna (connected antenna) information
         public string? RemoteMacAddress { get; set; }
         public string? RemoteIdentity { get; set; }
+        public string? RemoteRadioName { get; set; }
         public double? RemoteSignalStrength { get; set; }
         public double? RemoteSignalToNoiseRatio { get; set; }
         public double? RemoteTxRate { get; set; }
         public double? RemoteRxRate { get; set; }
         public double? RemoteCCQ { get; set; }
+        public double? RemoteTxCCQ { get; set; }
+        public double? RemoteRxCCQ { get; set; }
         public double? RemoteTxSignalStrength { get; set; }
         public double? RemoteRxSignalStrength { get; set; }
+        public double? RemoteSignalStrengthCh0 { get; set; }
+        public double? RemoteSignalStrengthCh1 { get; set; }
+        public double? RemoteTxSignalStrengthCh0 { get; set; }
+        public double? RemoteTxSignalStrengthCh1 { get; set; }
+        public double? RemotePThroughput { get; set; }
+        public long? RemotePacketsRx { get; set; }
+        public long? RemotePacketsTx { get; set; }
+        public long? RemoteBytesRx { get; set; }
+        public long? RemoteBytesTx { get; set; }
+        public long? RemoteFramesRx { get; set; }
+        public long? RemoteFramesTx { get; set; }
+        public long? RemoteFrameBytesRx { get; set; }
+        public long? RemoteFrameBytesTx { get; set; }
+        public long? RemoteHwFramesRx { get; set; }
+        public long? RemoteHwFramesTx { get; set; }
+        public long? RemoteHwFrameBytesRx { get; set; }
+        public long? RemoteHwFrameBytesTx { get; set; }
+        public long? RemoteTxFramesTimedOut { get; set; }
+        public string? RemoteUptime { get; set; }
+        public string? RemoteLastActivity { get; set; }
+        public bool? RemoteNstreme { get; set; }
+        public bool? RemoteNstremePlus { get; set; }
+        public string? RemoteFramingMode { get; set; }
+        public string? RemoteRouterOsVersion { get; set; }
+        public string? RemoteLastIp { get; set; }
+        public bool? Remote8021xPortEnabled { get; set; }
+        public string? RemoteAuthenticationType { get; set; }
+        public string? RemoteEncryption { get; set; }
+        public string? RemoteGroupEncryption { get; set; }
+        public bool? RemoteManagementProtection { get; set; }
+        public bool? RemoteCompression { get; set; }
+        public bool? RemoteWmmEnabled { get; set; }
+        public string? RemoteTxRateSet { get; set; }
     }
 }
 

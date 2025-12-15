@@ -22,7 +22,7 @@ namespace Ntk.Mikrotik.Tools.Models
         public string CommandSetWirelessProtocol { get; set; } = "/interface wireless set \"{interface}\" wireless-protocol={protocol}";
         public string CommandSetChannelWidth { get; set; } = "/interface wireless set \"{interface}\" channel-width={channelWidth}";
         public string CommandGetInterfaceInfo { get; set; } = "/interface wireless print detail where name=\"{interface}\"";
-        public string CommandGetRegistrationTable { get; set; } = "/interface wireless registration-table print detail where interface=\"{interface}\"";
+        public string CommandGetRegistrationTable { get; set; } = "/interface wireless registration-table print stat where interface=\"{interface}\"";
         public string CommandMonitorInterface { get; set; } = "/interface wireless monitor \"{interface}\" once";
     }
 }

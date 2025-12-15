@@ -7,6 +7,10 @@ using Ntk.Mikrotik.Tools.Models;
 
 namespace Ntk.Mikrotik.Tools.Services
 {
+    /// <summary>
+    /// کلاس اصلی برای اسکن فرکانس‌های مختلف در روترهای میکروتیک
+    /// این کلاس با استفاده از SSH به روتر متصل می‌شود و فرکانس‌های مختلف را تست می‌کند
+    /// </summary>
     public class FrequencyScanner
     {
         private readonly MikroTikSshClient _sshClient;
@@ -14,10 +18,27 @@ namespace Ntk.Mikrotik.Tools.Services
         private CancellationTokenSource? _cancellationTokenSource;
         private JsonDataService? _jsonDataService;
 
+        /// <summary>
+        /// رویداد برای اطلاع از پیشرفت اسکن - هر بار که یک فرکانس اسکن می‌شود این رویداد فراخوانی می‌شود
+        /// </summary>
         public event EventHandler<FrequencyScanResult>? ScanProgress;
+        
+        /// <summary>
+        /// رویداد برای به‌روزرسانی وضعیت - برای نمایش پیام‌های وضعیت در رابط کاربری
+        /// </summary>
         public event EventHandler<string>? StatusUpdate;
+        
+        /// <summary>
+        /// رویداد برای نمایش داده‌های ترمینال - برای نمایش خروجی کامندهای RouterOS
+        /// </summary>
         public event EventHandler<string>? TerminalData;
 
+        /// <summary>
+        /// سازنده کلاس FrequencyScanner
+        /// </summary>
+        /// <param name="settings">تنظیمات اسکن شامل فرکانس‌ها، پروتکل‌ها و کامندهای RouterOS</param>
+        /// <param name="existingSshClient">کلاینت SSH موجود (اختیاری) - اگر null باشد یک کلاینت جدید ایجاد می‌شود</param>
+        /// <param name="jsonDataService">سرویس ذخیره‌سازی JSON (اختیاری) - برای ذخیره نتایج اسکن</param>
         public FrequencyScanner(ScanSettings settings, MikroTikSshClient? existingSshClient = null, JsonDataService? jsonDataService = null)
         {
             _settings = settings;
@@ -36,8 +57,17 @@ namespace Ntk.Mikrotik.Tools.Services
             }
         }
 
+        /// <summary>
+        /// رویداد برای به‌روزرسانی پیشرفت اسکن - درصد پیشرفت (0-100)
+        /// </summary>
         public event EventHandler<int>? ProgressChanged;
 
+        /// <summary>
+        /// شروع اسکن فرکانس‌های مختلف
+        /// این متد تمام ترکیبات فرکانس، پروتکل و channel width را تست می‌کند
+        /// </summary>
+        /// <param name="cancellationToken">توکن لغو برای امکان توقف اسکن</param>
+        /// <returns>لیست نتایج اسکن برای هر فرکانس</returns>
         public async Task<List<FrequencyScanResult>> StartScanAsync(CancellationToken cancellationToken = default)
         {
             var results = new List<FrequencyScanResult>();
@@ -128,11 +158,22 @@ namespace Ntk.Mikrotik.Tools.Services
             return results;
         }
 
+        /// <summary>
+        /// توقف اسکن در حال انجام
+        /// این متد با لغو کردن CancellationToken اسکن را متوقف می‌کند
+        /// </summary>
         public void StopScan()
         {
             _cancellationTokenSource?.Cancel();
         }
 
+        /// <summary>
+        /// تولید لیست فرکانس‌ها بر اساس محدوده و گام
+        /// </summary>
+        /// <param name="start">فرکانس شروع (MHz)</param>
+        /// <param name="end">فرکانس پایان (MHz)</param>
+        /// <param name="step">گام فرکانس (MHz)</param>
+        /// <returns>لیست فرکانس‌ها با دقت 2 رقم اعشار</returns>
         private List<double> GenerateFrequencyList(double start, double end, double step)
         {
             var frequencies = new List<double>();
@@ -143,6 +184,12 @@ namespace Ntk.Mikrotik.Tools.Services
             return frequencies;
         }
 
+        /// <summary>
+        /// پارس کردن لیست مقادیر از یک رشته
+        /// مقادیر می‌توانند با کاما یا خط جدید جدا شده باشند
+        /// </summary>
+        /// <param name="input">رشته ورودی شامل مقادیر جدا شده با کاما یا خط جدید</param>
+        /// <returns>لیست مقادیر پارس شده</returns>
         private List<string?> ParseList(string input)
         {
             var list = new List<string?>();
@@ -162,6 +209,11 @@ namespace Ntk.Mikrotik.Tools.Services
             return list;
         }
 
+        /// <summary>
+        /// دریافت وضعیت فعلی اینترفیس و آنتن‌های متصل
+        /// این متد اطلاعات کامل از اینترفیس فعلی و آنتن‌های رجیستر شده را دریافت می‌کند
+        /// </summary>
+        /// <returns>نتیجه اسکن شامل تمام اطلاعات اینترفیس و آنتن‌های remote</returns>
         public async Task<FrequencyScanResult> GetCurrentStatusAsync()
         {
             var result = new FrequencyScanResult
@@ -174,21 +226,25 @@ namespace Ntk.Mikrotik.Tools.Services
             try
             {
                 OnStatusUpdate("در حال دریافت اطلاعات اینترفیس فعلی...");
+                OnTerminalData("[GetCurrentStatus] شروع دریافت اطلاعات پایه...");
                 
                 // Get current frequency - use print command to get interface info
                 var getInfoCommand = _settings.CommandGetInterfaceInfo
                     .Replace("{interface}", _settings.InterfaceName);
                 
                 OnStatusUpdate($"اجرای کامند: {getInfoCommand}");
+                OnTerminalData($"[GetCurrentStatus] اجرای کامند: {getInfoCommand}");
                 var interfaceInfo = await _sshClient.SendCommandAsync(getInfoCommand, 8000);
                 
                 if (string.IsNullOrWhiteSpace(interfaceInfo))
                 {
                     OnStatusUpdate("هشدار: هیچ پاسخی از کامند دریافت نشد. تلاش با فرمت جایگزین...");
+                    OnTerminalData("[GetCurrentStatus] هشدار: هیچ پاسخی از کامند دریافت نشد.");
                     // Try alternative command format - use CommandGetInterfaceInfo from settings
                     var altCommand = _settings.CommandGetInterfaceInfo
                         .Replace("{interface}", _settings.InterfaceName);
                     OnStatusUpdate($"تلاش با فرمت جایگزین: {altCommand}");
+                    OnTerminalData($"[GetCurrentStatus] تلاش با فرمت جایگزین: {altCommand}");
                     interfaceInfo = await _sshClient.SendCommandAsync(altCommand, 8000);
                 }
                 
@@ -197,11 +253,14 @@ namespace Ntk.Mikrotik.Tools.Services
                 if (currentFreq.HasValue)
                 {
                     result.Frequency = currentFreq.Value;
+                    OnTerminalData($"[GetCurrentStatus] فرکانس فعلی: {currentFreq.Value} MHz");
                 }
 
-                // Collect all statistics
+                // Collect all statistics (this will also call CommandGetRegistrationTable)
+                OnTerminalData("[GetCurrentStatus] شروع جمع‌آوری آمار کامل (شامل Registration Table)...");
                 result = await CollectStatisticsAsync(result);
                 result.Status = "base";
+                OnTerminalData("[GetCurrentStatus] جمع‌آوری آمار کامل شد.");
 
                 OnStatusUpdate($"وضعیت فعلی دریافت شد - فرکانس: {result.Frequency} MHz");
             }
@@ -214,6 +273,14 @@ namespace Ntk.Mikrotik.Tools.Services
             return result;
         }
 
+        /// <summary>
+        /// اسکن یک فرکانس خاص
+        /// این متد فرکانس را تنظیم می‌کند، منتظر استیبل شدن می‌ماند و سپس آمار را جمع‌آوری می‌کند
+        /// </summary>
+        /// <param name="frequency">فرکانس مورد نظر برای تست (MHz)</param>
+        /// <param name="wirelessProtocol">پروتکل wireless (اختیاری) - اگر null باشد از تنظیمات فعلی استفاده می‌شود</param>
+        /// <param name="channelWidth">عرض کانال (اختیاری) - اگر null باشد از تنظیمات فعلی استفاده می‌شود</param>
+        /// <returns>نتیجه اسکن برای این فرکانس</returns>
         private async Task<FrequencyScanResult> ScanFrequencyAsync(double frequency, string? wirelessProtocol = null, string? channelWidth = null)
         {
             var result = new FrequencyScanResult
@@ -310,10 +377,12 @@ namespace Ntk.Mikrotik.Tools.Services
                 }
 
                 OnStatusUpdate($"در حال جمع‌آوری اطلاعات...");
+                OnTerminalData($"[ScanFrequency] شروع جمع‌آوری آمار برای فرکانس {frequency} MHz (شامل Registration Table)...");
 
-                // Collect statistics
+                // Collect statistics (this will also call CommandGetRegistrationTable)
                 result = await CollectStatisticsAsync(result);
                 result.Status = "موفق";
+                OnTerminalData($"[ScanFrequency] جمع‌آوری آمار برای فرکانس {frequency} MHz تکمیل شد.");
 
                 OnStatusUpdate($"تکمیل - فرکانس: {frequency} MHz, SNR: {result.SignalToNoiseRatio} dB");
             }
@@ -326,6 +395,15 @@ namespace Ntk.Mikrotik.Tools.Services
             return result;
         }
 
+        /// <summary>
+        /// جمع‌آوری آمار کامل از اینترفیس و آنتن‌های remote
+        /// این متد اطلاعات را از سه منبع دریافت می‌کند:
+        /// 1. Interface Info - اطلاعات پایه اینترفیس
+        /// 2. Registration Table - اطلاعات آنتن‌های remote رجیستر شده
+        /// 3. Monitor - اطلاعات real-time و دقیق‌تر
+        /// </summary>
+        /// <param name="result">نتیجه اسکن که باید با اطلاعات جمع‌آوری شده پر شود</param>
+        /// <returns>نتیجه اسکن با اطلاعات کامل</returns>
         private async Task<FrequencyScanResult> CollectStatisticsAsync(FrequencyScanResult result)
         {
             try
@@ -378,39 +456,99 @@ namespace Ntk.Mikrotik.Tools.Services
                 result.WirelessProtocol = ParseStringValue(info, "wireless-protocol");
 
                 // Get wireless registration table for remote antenna info
+                OnTerminalData($"[CollectStatistics] ========================================");
+                OnTerminalData($"[CollectStatistics] شروع دریافت Registration Table");
+                OnTerminalData($"[CollectStatistics] ========================================");
                 try
                 {
+                    OnStatusUpdate($"در حال دریافت اطلاعات registration table...");
+                    OnTerminalData($"[Registration Table] ========================================");
+                    OnTerminalData($"[Registration Table] شروع دریافت Registration Table");
+                    OnTerminalData($"[Registration Table] Command Template: {_settings.CommandGetRegistrationTable}");
+                    OnTerminalData($"[Registration Table] Interface Name: {_settings.InterfaceName}");
+                    
                     var regTableCommand = _settings.CommandGetRegistrationTable
                         .Replace("{interface}", _settings.InterfaceName);
-                    OnStatusUpdate($"در حال دریافت اطلاعات registration table...");
-                    OnTerminalData($"Command: {regTableCommand}");
+                    
+                    OnTerminalData($"[Registration Table] کامند نهایی: {regTableCommand}");
+                    OnTerminalData($"[Registration Table] ========================================");
+                    
                     var regTable = await _sshClient.SendCommandAsync(regTableCommand, 8000);
+                    
+                    OnTerminalData($"[Registration Table] کامند اجرا شد.");
+                    OnTerminalData($"[Registration Table] طول پاسخ: {regTable?.Length ?? 0} کاراکتر");
+                    OnTerminalData($"[Registration Table] پاسخ خالی است: {string.IsNullOrWhiteSpace(regTable)}");
                     
                     if (string.IsNullOrWhiteSpace(regTable))
                     {
                         OnStatusUpdate("⚠️ هشدار: registration table خالی است. ممکن است آنتن remote متصل نباشد.");
-                        OnTerminalData("Response: (empty)");
+                        OnTerminalData($"[Registration Table] ⚠️ هشدار: پاسخ خالی است!");
+                        OnTerminalData($"[Registration Table] Response: (empty or null)");
                     }
                     else
                     {
                         OnStatusUpdate($"✓ Registration table دریافت شد ({regTable.Length} کاراکتر)");
-                        OnTerminalData($"Registration Table Response:\n{regTable}");
+                        OnTerminalData($"[Registration Table] ========================================");
+                        OnTerminalData($"[Registration Table] پاسخ کامل Registration Table:");
+                        OnTerminalData($"[Registration Table] ========================================");
+                        OnTerminalData(regTable);
+                        OnTerminalData($"[Registration Table] ========================================");
+                        OnTerminalData($"[Registration Table] پایان پاسخ Registration Table");
+                        OnTerminalData($"[Registration Table] ========================================");
                         
                         // Parse remote antenna information from registration table
                         // Registration table may contain multiple entries, we need to parse each entry separately
+                        OnTerminalData($"[Registration Table] شروع پارس کردن اطلاعات...");
                         var remoteAntennaInfo = ParseRegistrationTableEntry(regTable);
+                        OnTerminalData($"[Registration Table] پارس کردن انجام شد. foundAnyData: {remoteAntennaInfo != null}");
                         
                         if (remoteAntennaInfo != null)
                         {
                             result.RemoteMacAddress = remoteAntennaInfo.MacAddress;
                             result.RemoteIdentity = remoteAntennaInfo.Identity;
+                            result.RemoteRadioName = remoteAntennaInfo.RadioName;
                             result.RemoteSignalStrength = remoteAntennaInfo.SignalStrength;
                             result.RemoteSignalToNoiseRatio = remoteAntennaInfo.SignalToNoiseRatio;
                             result.RemoteTxRate = remoteAntennaInfo.TxRate;
                             result.RemoteRxRate = remoteAntennaInfo.RxRate;
                             result.RemoteCCQ = remoteAntennaInfo.CCQ;
+                            result.RemoteTxCCQ = remoteAntennaInfo.TxCCQ;
+                            result.RemoteRxCCQ = remoteAntennaInfo.RxCCQ;
                             result.RemoteTxSignalStrength = remoteAntennaInfo.TxSignalStrength;
                             result.RemoteRxSignalStrength = remoteAntennaInfo.RxSignalStrength;
+                            result.RemoteSignalStrengthCh0 = remoteAntennaInfo.SignalStrengthCh0;
+                            result.RemoteSignalStrengthCh1 = remoteAntennaInfo.SignalStrengthCh1;
+                            result.RemoteTxSignalStrengthCh0 = remoteAntennaInfo.TxSignalStrengthCh0;
+                            result.RemoteTxSignalStrengthCh1 = remoteAntennaInfo.TxSignalStrengthCh1;
+                            result.RemotePThroughput = remoteAntennaInfo.PThroughput;
+                            result.RemotePacketsRx = remoteAntennaInfo.PacketsRx;
+                            result.RemotePacketsTx = remoteAntennaInfo.PacketsTx;
+                            result.RemoteBytesRx = remoteAntennaInfo.BytesRx;
+                            result.RemoteBytesTx = remoteAntennaInfo.BytesTx;
+                            result.RemoteFramesRx = remoteAntennaInfo.FramesRx;
+                            result.RemoteFramesTx = remoteAntennaInfo.FramesTx;
+                            result.RemoteFrameBytesRx = remoteAntennaInfo.FrameBytesRx;
+                            result.RemoteFrameBytesTx = remoteAntennaInfo.FrameBytesTx;
+                            result.RemoteHwFramesRx = remoteAntennaInfo.HwFramesRx;
+                            result.RemoteHwFramesTx = remoteAntennaInfo.HwFramesTx;
+                            result.RemoteHwFrameBytesRx = remoteAntennaInfo.HwFrameBytesRx;
+                            result.RemoteHwFrameBytesTx = remoteAntennaInfo.HwFrameBytesTx;
+                            result.RemoteTxFramesTimedOut = remoteAntennaInfo.TxFramesTimedOut;
+                            result.RemoteUptime = remoteAntennaInfo.Uptime;
+                            result.RemoteLastActivity = remoteAntennaInfo.LastActivity;
+                            result.RemoteNstreme = remoteAntennaInfo.Nstreme;
+                            result.RemoteNstremePlus = remoteAntennaInfo.NstremePlus;
+                            result.RemoteFramingMode = remoteAntennaInfo.FramingMode;
+                            result.RemoteRouterOsVersion = remoteAntennaInfo.RouterOsVersion;
+                            result.RemoteLastIp = remoteAntennaInfo.LastIp;
+                            result.Remote8021xPortEnabled = remoteAntennaInfo.Port8021xEnabled;
+                            result.RemoteAuthenticationType = remoteAntennaInfo.AuthenticationType;
+                            result.RemoteEncryption = remoteAntennaInfo.Encryption;
+                            result.RemoteGroupEncryption = remoteAntennaInfo.GroupEncryption;
+                            result.RemoteManagementProtection = remoteAntennaInfo.ManagementProtection;
+                            result.RemoteCompression = remoteAntennaInfo.Compression;
+                            result.RemoteWmmEnabled = remoteAntennaInfo.WmmEnabled;
+                            result.RemoteTxRateSet = remoteAntennaInfo.TxRateSet;
                             
                             var infoSummary = $"MAC={remoteAntennaInfo.MacAddress ?? "N/A"}, " +
                                             $"Identity={remoteAntennaInfo.Identity ?? "N/A"}, " +
@@ -419,6 +557,16 @@ namespace Ntk.Mikrotik.Tools.Services
                                             $"TxRate={remoteAntennaInfo.TxRate?.ToString("F1") ?? "N/A"}Mbps, " +
                                             $"RxRate={remoteAntennaInfo.RxRate?.ToString("F1") ?? "N/A"}Mbps, " +
                                             $"CCQ={remoteAntennaInfo.CCQ?.ToString("F1") ?? "N/A"}%";
+                            
+                            if (remoteAntennaInfo.TxCCQ.HasValue || remoteAntennaInfo.RxCCQ.HasValue)
+                            {
+                                infoSummary += $", TxCCQ={remoteAntennaInfo.TxCCQ?.ToString("F1") ?? "N/A"}%, RxCCQ={remoteAntennaInfo.RxCCQ?.ToString("F1") ?? "N/A"}%";
+                            }
+                            
+                            if (remoteAntennaInfo.PThroughput.HasValue)
+                            {
+                                infoSummary += $", P-Throughput={remoteAntennaInfo.PThroughput?.ToString("F1") ?? "N/A"}";
+                            }
                             
                             OnStatusUpdate($"✓ اطلاعات remote antenna دریافت شد: {infoSummary}");
                             OnTerminalData($"Parsed Remote Antenna Info: {infoSummary}");
@@ -439,8 +587,19 @@ namespace Ntk.Mikrotik.Tools.Services
                 catch (Exception ex)
                 {
                     OnStatusUpdate($"⚠️ خطا در دریافت registration table: {ex.Message}");
-                    OnTerminalData($"Error getting registration table: {ex.Message}");
+                    OnTerminalData($"[Registration Table] ========================================");
+                    OnTerminalData($"[Registration Table] ⚠️ خطا در دریافت Registration Table!");
+                    OnTerminalData($"[Registration Table] Exception Type: {ex.GetType().Name}");
+                    OnTerminalData($"[Registration Table] Exception Message: {ex.Message}");
+                    OnTerminalData($"[Registration Table] Stack Trace: {ex.StackTrace}");
+                    OnTerminalData($"[Registration Table] ========================================");
                     // Registration table might not be available, continue
+                }
+                finally
+                {
+                    OnTerminalData($"[CollectStatistics] ========================================");
+                    OnTerminalData($"[CollectStatistics] پایان دریافت Registration Table");
+                    OnTerminalData($"[CollectStatistics] ========================================");
                 }
 
                 // Get monitoring data for real-time rates and better statistics
@@ -530,6 +689,13 @@ namespace Ntk.Mikrotik.Tools.Services
             return result;
         }
 
+        /// <summary>
+        /// پارس کردن یک مقدار عددی از خروجی RouterOS
+        /// این متد مقادیر عددی را از فرمت‌های مختلف RouterOS استخراج می‌کند
+        /// </summary>
+        /// <param name="text">متن خروجی RouterOS</param>
+        /// <param name="key">نام کلید مورد نظر (مثلاً "signal-strength", "noise-floor")</param>
+        /// <returns>مقدار عددی استخراج شده یا null اگر پیدا نشد</returns>
         private double? ParseValue(string text, string key)
         {
             if (string.IsNullOrEmpty(text))
@@ -587,6 +753,13 @@ namespace Ntk.Mikrotik.Tools.Services
             return null;
         }
 
+        /// <summary>
+        /// پارس کردن یک مقدار رشته‌ای از خروجی RouterOS
+        /// این متد مقادیر رشته‌ای را از فرمت key=value یا key:value استخراج می‌کند
+        /// </summary>
+        /// <param name="text">متن خروجی RouterOS</param>
+        /// <param name="key">نام کلید مورد نظر (مثلاً "band", "wireless-protocol")</param>
+        /// <returns>مقدار رشته‌ای استخراج شده یا null اگر پیدا نشد</returns>
         private string? ParseStringValue(string text, string key)
         {
             if (string.IsNullOrEmpty(text))
@@ -740,18 +913,57 @@ namespace Ntk.Mikrotik.Tools.Services
             return null;
         }
 
-        // Helper class for remote antenna information
+        /// <summary>
+        /// کلاس کمکی برای ذخیره اطلاعات آنتن remote
+        /// این کلاس اطلاعات آنتن‌های متصل به روتر را نگه می‌دارد
+        /// </summary>
         private class RemoteAntennaInfo
         {
             public string? MacAddress { get; set; }
             public string? Identity { get; set; }
+            public string? RadioName { get; set; }
             public double? SignalStrength { get; set; }
             public double? SignalToNoiseRatio { get; set; }
             public double? TxRate { get; set; }
             public double? RxRate { get; set; }
             public double? CCQ { get; set; }
+            public double? TxCCQ { get; set; }
+            public double? RxCCQ { get; set; }
             public double? TxSignalStrength { get; set; }
             public double? RxSignalStrength { get; set; }
+            public double? SignalStrengthCh0 { get; set; }
+            public double? SignalStrengthCh1 { get; set; }
+            public double? TxSignalStrengthCh0 { get; set; }
+            public double? TxSignalStrengthCh1 { get; set; }
+            public double? PThroughput { get; set; }
+            public long? PacketsRx { get; set; }
+            public long? PacketsTx { get; set; }
+            public long? BytesRx { get; set; }
+            public long? BytesTx { get; set; }
+            public long? FramesRx { get; set; }
+            public long? FramesTx { get; set; }
+            public long? FrameBytesRx { get; set; }
+            public long? FrameBytesTx { get; set; }
+            public long? HwFramesRx { get; set; }
+            public long? HwFramesTx { get; set; }
+            public long? HwFrameBytesRx { get; set; }
+            public long? HwFrameBytesTx { get; set; }
+            public long? TxFramesTimedOut { get; set; }
+            public string? Uptime { get; set; }
+            public string? LastActivity { get; set; }
+            public bool? Nstreme { get; set; }
+            public bool? NstremePlus { get; set; }
+            public string? FramingMode { get; set; }
+            public string? RouterOsVersion { get; set; }
+            public string? LastIp { get; set; }
+            public bool? Port8021xEnabled { get; set; }
+            public string? AuthenticationType { get; set; }
+            public string? Encryption { get; set; }
+            public string? GroupEncryption { get; set; }
+            public bool? ManagementProtection { get; set; }
+            public bool? Compression { get; set; }
+            public bool? WmmEnabled { get; set; }
+            public string? TxRateSet { get; set; }
         }
 
         /// <summary>
@@ -770,6 +982,8 @@ namespace Ntk.Mikrotik.Tools.Services
             var info = new RemoteAntennaInfo();
             var lines = regTable.Split(new[] { '\n', '\r' }, StringSplitOptions.RemoveEmptyEntries);
             
+            OnTerminalData($"[ParseRegistrationTable] Total lines to parse: {lines.Length}");
+            
             bool foundAnyData = false;
             
             foreach (var line in lines)
@@ -777,6 +991,8 @@ namespace Ntk.Mikrotik.Tools.Services
                 var trimmedLine = line.Trim();
                 if (string.IsNullOrEmpty(trimmedLine))
                     continue;
+                
+                OnTerminalData($"[ParseRegistrationTable] Processing line: {trimmedLine.Substring(0, Math.Min(150, trimmedLine.Length))}...");
 
                 // Skip comment lines and command prompts
                 if (trimmedLine.StartsWith(";;;") || trimmedLine.StartsWith(">") || 
@@ -790,52 +1006,220 @@ namespace Ntk.Mikrotik.Tools.Services
                     continue;
                 }
 
-                // If line starts with a number (like "0" or "1"), it might be entry number, skip it
-                if (trimmedLine.Length > 0 && char.IsDigit(trimmedLine[0]) && trimmedLine.Length < 5)
+                // If line starts with a number followed by space (like " 1 "), it's entry number
+                // Extract the part after the number which contains key=value pairs
+                if (trimmedLine.Length > 0 && char.IsDigit(trimmedLine[0]))
                 {
-                    continue;
+                    var firstSpaceIndex = trimmedLine.IndexOf(' ');
+                    if (firstSpaceIndex > 0 && firstSpaceIndex < 10) // Allow up to 9 digits for entry number
+                    {
+                        // Check if the part before space is just a number
+                        var numberPart = trimmedLine.Substring(0, firstSpaceIndex);
+                        if (numberPart.All(char.IsDigit))
+                        {
+                            // Extract the part after the number
+                            trimmedLine = trimmedLine.Substring(firstSpaceIndex).Trim();
+                            if (string.IsNullOrEmpty(trimmedLine))
+                                continue;
+                        }
+                    }
+                    else if (trimmedLine.Length < 10 && trimmedLine.All(char.IsDigit))
+                    {
+                        // It's just a number, skip it
+                        continue;
+                    }
                 }
 
                 // Try to parse key-value pairs with different separators
-                // First, try to split by spaces if it looks like tabular format
-                var parts = trimmedLine.Split(new[] { ' ', '\t' }, StringSplitOptions.RemoveEmptyEntries);
-                
-                // If we have many parts, it might be tabular format - try to match by position or key-value
-                if (parts.Length > 3)
+                // First, try to parse key=value format (most common in RouterOS stat output)
+                // This format can have multiple key=value pairs in one line separated by spaces
+                if (trimmedLine.Contains("="))
                 {
-                    // Try to find key-value pairs within the line
-                    for (int i = 0; i < parts.Length - 1; i++)
+                    // Use improved regex to find all key=value pairs
+                    // Pattern must handle:
+                    // - Quoted values: key="value" or key='value'
+                    // - Unquoted values: key=value
+                    // - Values with commas: key=value1,value2
+                    // - Values with special chars: key=-75dBm@6Mbps
+                    // Strategy: Match key=, then match until next key= or end of line
+                    var keyValuePairs = new List<(string key, string value)>();
+                    var currentPos = 0;
+                    
+                    while (currentPos < trimmedLine.Length)
                     {
-                        var key = parts[i].ToLower();
-                        var value = parts[i + 1];
+                        // Find next key= pattern
+                        var keyPattern = @"(\w+(?:-\w+)*)=";
+                        var keyMatch = System.Text.RegularExpressions.Regex.Match(trimmedLine.Substring(currentPos), keyPattern);
+                        if (!keyMatch.Success)
+                            break;
                         
+                        var keyStart = currentPos + keyMatch.Index;
+                        var key = keyMatch.Groups[1].Value.ToLower();
+                        var valueStart = keyStart + keyMatch.Length;
+                        
+                        // Find where value ends (next key= or end of line)
+                        var nextKeyMatch = System.Text.RegularExpressions.Regex.Match(trimmedLine.Substring(valueStart), keyPattern);
+                        var valueEnd = nextKeyMatch.Success ? valueStart + nextKeyMatch.Index : trimmedLine.Length;
+                        
+                        var value = trimmedLine.Substring(valueStart, valueEnd - valueStart).Trim();
+                        
+                        // Remove quotes if present
+                        if (value.StartsWith("\"") && value.EndsWith("\""))
+                            value = value.Substring(1, value.Length - 2);
+                        else if (value.StartsWith("'") && value.EndsWith("'"))
+                            value = value.Substring(1, value.Length - 2);
+                        
+                        keyValuePairs.Add((key, value));
+                        currentPos = valueEnd;
+                    }
+                    
+                    // Parse each key-value pair
+                    foreach (var (key, value) in keyValuePairs)
+                    {
                         ParseKeyValuePair(key, value, info, ref foundAnyData);
+                    }
+                    
+                    // Log parsing result
+                    if (keyValuePairs.Count > 0)
+                    {
+                        OnTerminalData($"[ParseRegistrationTable] Parsed {keyValuePairs.Count} key-value pairs from line");
+                    }
+                    else
+                    {
+                        // Fallback: Try a simpler approach - split by spaces and find key=value patterns
+                        // This handles cases where values contain spaces or special characters
+                        var parts = trimmedLine.Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries);
+                        foreach (var part in parts)
+                        {
+                            if (part.Contains("="))
+                            {
+                                var equalIndex = part.IndexOf('=');
+                                if (equalIndex > 0 && equalIndex < part.Length - 1)
+                                {
+                                    var key = part.Substring(0, equalIndex).Trim().ToLower();
+                                    var value = part.Substring(equalIndex + 1).Trim();
+                                    // Remove quotes if present
+                                    if (value.StartsWith("\"") && value.EndsWith("\""))
+                                        value = value.Substring(1, value.Length - 2);
+                                    ParseKeyValuePair(key, value, info, ref foundAnyData);
+                                }
+                            }
+                        }
+                    }
+                    
+                    // Additional fallback: if both methods didn't work, try manual parsing
+                    if (keyValuePairs.Count == 0 && !foundAnyData)
+                    {
+                        // Split by spaces, but preserve key=value pairs
+                        // Example: "interface=wlan1 radio-name=\"NTK_O\" mac-address=4C:5E:0C:7F:D4:B1"
+                        var manualKeyValuePairs = new List<string>();
+                        var currentPair = "";
+                        var inQuotes = false;
+                        var quoteChar = '\0';
+                        
+                        for (int i = 0; i < trimmedLine.Length; i++)
+                        {
+                            var ch = trimmedLine[i];
+                            
+                            // Handle quoted values
+                            if ((ch == '"' || ch == '\'') && !inQuotes)
+                            {
+                                inQuotes = true;
+                                quoteChar = ch;
+                                currentPair += ch;
+                            }
+                            else if (inQuotes && ch == quoteChar)
+                            {
+                                inQuotes = false;
+                                currentPair += ch;
+                            }
+                            else if (!inQuotes && char.IsWhiteSpace(ch) && currentPair.Contains("="))
+                            {
+                                // End of current key=value pair
+                                if (!string.IsNullOrEmpty(currentPair))
+                                {
+                                    manualKeyValuePairs.Add(currentPair);
+                                    currentPair = "";
+                                }
+                            }
+                            else
+                            {
+                                currentPair += ch;
+                            }
+                        }
+                        
+                        // Add last pair if exists
+                        if (!string.IsNullOrEmpty(currentPair) && currentPair.Contains("="))
+                        {
+                            manualKeyValuePairs.Add(currentPair);
+                        }
+                        
+                        // Parse each key=value pair
+                        foreach (var pair in manualKeyValuePairs)
+                        {
+                            var equalIndex = pair.IndexOf('=');
+                            if (equalIndex > 0 && equalIndex < pair.Length - 1)
+                            {
+                                var key = pair.Substring(0, equalIndex).Trim().ToLower();
+                                var value = pair.Substring(equalIndex + 1).Trim();
+                                ParseKeyValuePair(key, value, info, ref foundAnyData);
+                            }
+                        }
                     }
                 }
                 else
                 {
-                    // Standard key-value format with ":" or "="
-                    string[] separators = { ":", "=" };
-                    foreach (var separator in separators)
+                    // Fallback: Try to split by spaces if it looks like tabular format
+                    var parts = trimmedLine.Split(new[] { ' ', '\t' }, StringSplitOptions.RemoveEmptyEntries);
+                    
+                    // If we have many parts, it might be tabular format - try to match by position or key-value
+                    if (parts.Length > 3)
                     {
-                        var sepIndex = trimmedLine.IndexOf(separator);
+                        // Try to find key-value pairs within the line
+                        for (int i = 0; i < parts.Length - 1; i++)
+                        {
+                            var key = parts[i].ToLower();
+                            var value = parts[i + 1];
+                            
+                            ParseKeyValuePair(key, value, info, ref foundAnyData);
+                        }
+                    }
+                    else
+                    {
+                        // Standard key-value format with ":"
+                        var sepIndex = trimmedLine.IndexOf(':');
                         if (sepIndex > 0)
                         {
                             var key = trimmedLine.Substring(0, sepIndex).Trim().ToLower();
-                            var value = trimmedLine.Substring(sepIndex + separator.Length).Trim();
+                            var value = trimmedLine.Substring(sepIndex + 1).Trim();
                             ParseKeyValuePair(key, value, info, ref foundAnyData);
                         }
                     }
                 }
             }
 
+            // Log final parsing result
+            if (foundAnyData)
+            {
+                OnTerminalData($"[ParseRegistrationTable] Successfully parsed data. MAC: {info.MacAddress ?? "N/A"}, Signal: {info.SignalStrength?.ToString("F1") ?? "N/A"}, TxCCQ: {info.TxCCQ?.ToString("F1") ?? "N/A"}, RxCCQ: {info.RxCCQ?.ToString("F1") ?? "N/A"}");
+            }
+            else
+            {
+                OnTerminalData("[ParseRegistrationTable] No data found in registration table");
+            }
+            
             // Return info only if we found at least some data
             return foundAnyData ? info : null;
         }
 
         /// <summary>
-        /// Helper method to parse a key-value pair and populate RemoteAntennaInfo
+        /// متد کمکی برای پارس کردن یک جفت key-value و پر کردن RemoteAntennaInfo
+        /// این متد کلیدهای مختلف را شناسایی می‌کند و مقادیر را در کلاس RemoteAntennaInfo ذخیره می‌کند
         /// </summary>
+        /// <param name="key">نام کلید (مثلاً "signal-strength", "tx-rate")</param>
+        /// <param name="value">مقدار کلید</param>
+        /// <param name="info">شیء RemoteAntennaInfo که باید پر شود</param>
+        /// <param name="foundAnyData">ارجاع به متغیر boolean که نشان می‌دهد آیا داده‌ای پیدا شده است</param>
         private void ParseKeyValuePair(string key, string value, RemoteAntennaInfo info, ref bool foundAnyData)
         {
             if (string.IsNullOrEmpty(key) || string.IsNullOrEmpty(value))
@@ -847,6 +1231,13 @@ namespace Ntk.Mikrotik.Tools.Services
             // Remove quotes if present
             if (value.StartsWith("\"") && value.EndsWith("\""))
                 value = value.Substring(1, value.Length - 2);
+            
+            // Debug: Log important keys being parsed (using System.Diagnostics for debugging)
+            var importantKeys = new[] { "signal-strength", "signal-to-noise", "tx-rate", "rx-rate", "tx-ccq", "rx-ccq", "ccq", "mac-address", "identity", "radio-name", "packets", "bytes", "nstreme" };
+            if (importantKeys.Any(k => key.Contains(k)))
+            {
+                System.Diagnostics.Debug.WriteLine($"[ParseKeyValuePair] Key: {key}, Value: {value}");
+            }
 
             // Parse mac-address
             if (key.Contains("mac-address") || key == "mac")
@@ -860,9 +1251,16 @@ namespace Ntk.Mikrotik.Tools.Services
                 info.Identity = value;
                 foundAnyData = true;
             }
-            // Parse signal-strength
-            else if (key.Contains("signal-strength") || (key.Contains("signal") && !key.Contains("noise") && !key.Contains("tx") && !key.Contains("rx")))
+            // Parse radio-name
+            else if (key == "radio-name")
             {
+                info.RadioName = value;
+                foundAnyData = true;
+            }
+            // Parse signal-strength (handle formats like "-75dBm@6Mbps" or "-75dBm")
+            else if (key == "signal-strength" || (key.Contains("signal-strength") && !key.Contains("ch0") && !key.Contains("ch1") && !key.Contains("tx") && !key.Contains("rx")))
+            {
+                // Extract numeric value from formats like "-75dBm@6Mbps" or "-75dBm"
                 var numValue = ParseNumericValue(value);
                 if (numValue.HasValue)
                 {
@@ -871,7 +1269,7 @@ namespace Ntk.Mikrotik.Tools.Services
                 }
             }
             // Parse signal-to-noise
-            else if (key.Contains("signal-to-noise") || key.Contains("snr"))
+            else if (key == "signal-to-noise" || key == "signal-to-noise-ratio" || key.Contains("signal-to-noise") || key == "snr")
             {
                 var numValue = ParseNumericValue(value);
                 if (numValue.HasValue)
@@ -880,8 +1278,8 @@ namespace Ntk.Mikrotik.Tools.Services
                     foundAnyData = true;
                 }
             }
-            // Parse tx-rate
-            else if (key.Contains("tx-rate"))
+            // Parse tx-rate (handle formats like "36Mbps" or "\"36Mbps\"")
+            else if (key == "tx-rate")
             {
                 var numValue = ParseNumericValue(value);
                 if (numValue.HasValue)
@@ -890,8 +1288,8 @@ namespace Ntk.Mikrotik.Tools.Services
                     foundAnyData = true;
                 }
             }
-            // Parse rx-rate
-            else if (key.Contains("rx-rate"))
+            // Parse rx-rate (handle formats like "6Mbps" or "\"6Mbps\"")
+            else if (key == "rx-rate")
             {
                 var numValue = ParseNumericValue(value);
                 if (numValue.HasValue)
@@ -900,13 +1298,43 @@ namespace Ntk.Mikrotik.Tools.Services
                     foundAnyData = true;
                 }
             }
-            // Parse ccq
-            else if (key.Contains("ccq"))
+            // Parse ccq (general)
+            else if (key == "ccq" || key.Contains("ccq") && !key.Contains("tx-ccq") && !key.Contains("rx-ccq"))
             {
                 var numValue = ParseNumericValue(value);
                 if (numValue.HasValue)
                 {
                     info.CCQ = numValue;
+                    foundAnyData = true;
+                }
+            }
+            // Parse tx-ccq
+            else if (key == "tx-ccq" || key.Contains("tx-ccq"))
+            {
+                var numValue = ParseNumericValue(value);
+                if (numValue.HasValue)
+                {
+                    info.TxCCQ = numValue;
+                    foundAnyData = true;
+                }
+            }
+            // Parse rx-ccq
+            else if (key == "rx-ccq" || key.Contains("rx-ccq"))
+            {
+                var numValue = ParseNumericValue(value);
+                if (numValue.HasValue)
+                {
+                    info.RxCCQ = numValue;
+                    foundAnyData = true;
+                }
+            }
+            // Parse p-throughput
+            else if (key == "p-throughput" || key.Contains("p-throughput"))
+            {
+                var numValue = ParseNumericValue(value);
+                if (numValue.HasValue)
+                {
+                    info.PThroughput = numValue;
                     foundAnyData = true;
                 }
             }
@@ -930,60 +1358,328 @@ namespace Ntk.Mikrotik.Tools.Services
                     foundAnyData = true;
                 }
             }
+            // Parse signal-strength-ch0
+            else if (key == "signal-strength-ch0")
+            {
+                var numValue = ParseNumericValue(value);
+                if (numValue.HasValue)
+                {
+                    info.SignalStrengthCh0 = numValue;
+                    foundAnyData = true;
+                }
+            }
+            // Parse signal-strength-ch1
+            else if (key == "signal-strength-ch1")
+            {
+                var numValue = ParseNumericValue(value);
+                if (numValue.HasValue)
+                {
+                    info.SignalStrengthCh1 = numValue;
+                    foundAnyData = true;
+                }
+            }
+            // Parse tx-signal-strength-ch0
+            else if (key == "tx-signal-strength-ch0")
+            {
+                var numValue = ParseNumericValue(value);
+                if (numValue.HasValue)
+                {
+                    info.TxSignalStrengthCh0 = numValue;
+                    foundAnyData = true;
+                }
+            }
+            // Parse tx-signal-strength-ch1
+            else if (key == "tx-signal-strength-ch1")
+            {
+                var numValue = ParseNumericValue(value);
+                if (numValue.HasValue)
+                {
+                    info.TxSignalStrengthCh1 = numValue;
+                    foundAnyData = true;
+                }
+            }
+            // Parse packets (format: "23334,25484" - rx,tx)
+            else if (key == "packets")
+            {
+                var values = ParseCommaSeparatedValues(value);
+                if (values.Count >= 2)
+                {
+                    if (long.TryParse(values[0], out long rx))
+                        info.PacketsRx = rx;
+                    if (long.TryParse(values[1], out long tx))
+                        info.PacketsTx = tx;
+                    foundAnyData = true;
+                }
+            }
+            // Parse bytes (format: "6664416,9273327" - rx,tx)
+            else if (key == "bytes")
+            {
+                var values = ParseCommaSeparatedValues(value);
+                if (values.Count >= 2)
+                {
+                    if (long.TryParse(values[0], out long rx))
+                        info.BytesRx = rx;
+                    if (long.TryParse(values[1], out long tx))
+                        info.BytesTx = tx;
+                    foundAnyData = true;
+                }
+            }
+            // Parse frames (format: "23334,25487" - rx,tx)
+            else if (key == "frames")
+            {
+                var values = ParseCommaSeparatedValues(value);
+                if (values.Count >= 2)
+                {
+                    if (long.TryParse(values[0], out long rx))
+                        info.FramesRx = rx;
+                    if (long.TryParse(values[1], out long tx))
+                        info.FramesTx = tx;
+                    foundAnyData = true;
+                }
+            }
+            // Parse frame-bytes (format: "6527112,9120766" - rx,tx)
+            else if (key == "frame-bytes")
+            {
+                var values = ParseCommaSeparatedValues(value);
+                if (values.Count >= 2)
+                {
+                    if (long.TryParse(values[0], out long rx))
+                        info.FrameBytesRx = rx;
+                    if (long.TryParse(values[1], out long tx))
+                        info.FrameBytesTx = tx;
+                    foundAnyData = true;
+                }
+            }
+            // Parse hw-frames (format: "64798,390855" - rx,tx)
+            else if (key == "hw-frames")
+            {
+                var values = ParseCommaSeparatedValues(value);
+                if (values.Count >= 2)
+                {
+                    if (long.TryParse(values[0], out long rx))
+                        info.HwFramesRx = rx;
+                    if (long.TryParse(values[1], out long tx))
+                        info.HwFramesTx = tx;
+                    foundAnyData = true;
+                }
+            }
+            // Parse hw-frame-bytes (format: "22447466,27595917" - rx,tx)
+            else if (key == "hw-frame-bytes")
+            {
+                var values = ParseCommaSeparatedValues(value);
+                if (values.Count >= 2)
+                {
+                    if (long.TryParse(values[0], out long rx))
+                        info.HwFrameBytesRx = rx;
+                    if (long.TryParse(values[1], out long tx))
+                        info.HwFrameBytesTx = tx;
+                    foundAnyData = true;
+                }
+            }
+            // Parse tx-frames-timed-out
+            else if (key == "tx-frames-timed-out")
+            {
+                if (long.TryParse(value, out long timeout))
+                {
+                    info.TxFramesTimedOut = timeout;
+                    foundAnyData = true;
+                }
+            }
+            // Parse uptime
+            else if (key == "uptime")
+            {
+                info.Uptime = value;
+                foundAnyData = true;
+            }
+            // Parse last-activity
+            else if (key == "last-activity")
+            {
+                info.LastActivity = value;
+                foundAnyData = true;
+            }
+            // Parse nstreme (yes/no)
+            else if (key == "nstreme")
+            {
+                info.Nstreme = value.ToLower() == "yes";
+                foundAnyData = true;
+            }
+            // Parse nstreme-plus (yes/no)
+            else if (key == "nstreme-plus")
+            {
+                info.NstremePlus = value.ToLower() == "yes";
+                foundAnyData = true;
+            }
+            // Parse framing-mode
+            else if (key == "framing-mode")
+            {
+                info.FramingMode = value;
+                foundAnyData = true;
+            }
+            // Parse routeros-version
+            else if (key == "routeros-version")
+            {
+                info.RouterOsVersion = value;
+                foundAnyData = true;
+            }
+            // Parse last-ip
+            else if (key == "last-ip")
+            {
+                info.LastIp = value;
+                foundAnyData = true;
+            }
+            // Parse 802.1x-port-enabled (yes/no)
+            else if (key == "802.1x-port-enabled")
+            {
+                info.Port8021xEnabled = value.ToLower() == "yes";
+                foundAnyData = true;
+            }
+            // Parse authentication-type
+            else if (key == "authentication-type")
+            {
+                info.AuthenticationType = value;
+                foundAnyData = true;
+            }
+            // Parse encryption
+            else if (key == "encryption")
+            {
+                info.Encryption = value;
+                foundAnyData = true;
+            }
+            // Parse group-encryption
+            else if (key == "group-encryption")
+            {
+                info.GroupEncryption = value;
+                foundAnyData = true;
+            }
+            // Parse management-protection (yes/no)
+            else if (key == "management-protection")
+            {
+                info.ManagementProtection = value.ToLower() == "yes";
+                foundAnyData = true;
+            }
+            // Parse compression (yes/no)
+            else if (key == "compression")
+            {
+                info.Compression = value.ToLower() == "yes";
+                foundAnyData = true;
+            }
+            // Parse wmm-enabled (yes/no)
+            else if (key == "wmm-enabled")
+            {
+                info.WmmEnabled = value.ToLower() == "yes";
+                foundAnyData = true;
+            }
+            // Parse tx-rate-set
+            else if (key == "tx-rate-set")
+            {
+                info.TxRateSet = value;
+                foundAnyData = true;
+            }
+        }
+
+        /// <summary>
+        /// پارس کردن مقادیر جدا شده با کاما (مثلاً "23334,25484")
+        /// </summary>
+        /// <param name="value">رشته شامل مقادیر جدا شده با کاما</param>
+        /// <returns>لیست مقادیر پارس شده</returns>
+        private List<string> ParseCommaSeparatedValues(string value)
+        {
+            var result = new List<string>();
+            if (string.IsNullOrWhiteSpace(value))
+                return result;
+
+            var parts = value.Split(',');
+            foreach (var part in parts)
+            {
+                var trimmed = part.Trim();
+                if (!string.IsNullOrWhiteSpace(trimmed))
+                {
+                    result.Add(trimmed);
+                }
+            }
+            return result;
         }
 
         /// <summary>
         /// Parses a numeric value from a string, handling units like "dBm", "Mbps", "%"
+        /// Also handles formats like "-75dBm@6Mbps" by extracting the first number
         /// </summary>
         private double? ParseNumericValue(string value)
         {
             if (string.IsNullOrEmpty(value))
                 return null;
 
-            // Remove common units
-            value = value.Replace("dBm", "").Replace("dB", "").Replace("Mbps", "").Replace("Mbps", "").Replace("%", "").Trim();
+            // Remove quotes if present
+            value = value.Trim();
+            if (value.StartsWith("\"") && value.EndsWith("\""))
+                value = value.Substring(1, value.Length - 2).Trim();
 
-            // Try to parse as double
-            if (double.TryParse(value, System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out double result))
+            // Handle formats like "-75dBm@6Mbps" - extract the first number before @
+            if (value.Contains("@"))
             {
-                return result;
+                var parts = value.Split('@');
+                if (parts.Length > 0)
+                {
+                    value = parts[0].Trim();
+                }
+            }
+
+            // Remove common units (case-insensitive)
+            value = System.Text.RegularExpressions.Regex.Replace(
+                value, 
+                @"\s*(dBm|dB|%|Mbps|Kbps|bps|MHz|GHz)\s*", 
+                "", 
+                System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+
+            // Extract the first number (may be negative)
+            var match = System.Text.RegularExpressions.Regex.Match(value, @"(-?\d+\.?\d*)");
+            if (match.Success)
+            {
+                if (double.TryParse(match.Value, System.Globalization.NumberStyles.Any, 
+                    System.Globalization.CultureInfo.InvariantCulture, out double result))
+                {
+                    return result;
+                }
             }
 
             return null;
         }
 
         /// <summary>
-        /// Extracts value from a line after a separator (for string values)
+        /// فراخوانی رویداد ScanProgress
+        /// این متد برای اطلاع از پیشرفت اسکن استفاده می‌شود
         /// </summary>
-        private string? ExtractValue(string line, string separator)
-        {
-            var index = line.IndexOf(separator);
-            if (index >= 0 && index < line.Length - 1)
-            {
-                var valueStr = line.Substring(index + separator.Length).Trim();
-                // Remove quotes if present
-                if (valueStr.StartsWith("\"") && valueStr.EndsWith("\""))
-                    valueStr = valueStr.Substring(1, valueStr.Length - 2);
-                return valueStr;
-            }
-            return null;
-        }
-
+        /// <param name="result">نتیجه اسکن که باید به listeners ارسال شود</param>
         protected virtual void OnScanProgress(FrequencyScanResult result)
         {
             ScanProgress?.Invoke(this, result);
         }
 
+        /// <summary>
+        /// فراخوانی رویداد StatusUpdate
+        /// این متد برای به‌روزرسانی پیام‌های وضعیت استفاده می‌شود
+        /// </summary>
+        /// <param name="message">پیام وضعیت</param>
         protected virtual void OnStatusUpdate(string message)
         {
             StatusUpdate?.Invoke(this, message);
         }
 
+        /// <summary>
+        /// فراخوانی رویداد ProgressChanged
+        /// این متد برای به‌روزرسانی درصد پیشرفت اسکن استفاده می‌شود
+        /// </summary>
+        /// <param name="progress">درصد پیشرفت (0-100)</param>
         protected virtual void OnProgressChanged(int progress)
         {
             ProgressChanged?.Invoke(this, progress);
         }
 
+        /// <summary>
+        /// فراخوانی رویداد TerminalData
+        /// این متد برای نمایش داده‌های ترمینال استفاده می‌شود
+        /// </summary>
+        /// <param name="data">داده ترمینال که باید نمایش داده شود</param>
         protected virtual void OnTerminalData(string data)
         {
             TerminalData?.Invoke(this, data);

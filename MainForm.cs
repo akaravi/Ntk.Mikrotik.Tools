@@ -213,6 +213,11 @@ namespace Ntk.Mikrotik.Tools
             var btnTestReconnect = CreateStyledButton("تست اتصال مجدد", "🔄", Color.FromArgb(123, 31, 162), 140, 30);
             btnTestReconnect.Name = "btnTestReconnect";
             
+            var btnStatus = CreateStyledButton("وضعیت", "📊", Color.FromArgb(0, 150, 136), 110, 30);
+            btnStatus.Name = "btnStatus";
+            btnStatus.Enabled = false;
+            btnStatus.BackColor = Color.FromArgb(150, 150, 150);
+            
             // Add hover effects
             void AddHoverEffect(Button btn, Color originalColor)
             {
@@ -225,6 +230,7 @@ namespace Ntk.Mikrotik.Tools
             AddHoverEffect(btnConnect, Color.FromArgb(25, 118, 210));
             AddHoverEffect(btnDisconnect, Color.FromArgb(198, 40, 40));
             AddHoverEffect(btnTestReconnect, Color.FromArgb(123, 31, 162));
+            AddHoverEffect(btnStatus, Color.FromArgb(0, 150, 136));
 
             // Add event handlers
             btnConnect.Click += async (s, e) => await ConnectToRouterAsync();
@@ -232,9 +238,11 @@ namespace Ntk.Mikrotik.Tools
             _btnStart.Click += async (s, e) => await StartScanAsync();
             _btnStop.Click += (s, e) => StopScan();
             btnTestReconnect.Click += async (s, e) => await TestReconnectionAsync();
+            btnStatus.Click += async (s, e) => await GetCurrentStatusAsync();
 
             buttonsPanel.Controls.Add(_btnStop);
             buttonsPanel.Controls.Add(_btnStart);
+            buttonsPanel.Controls.Add(btnStatus);
             buttonsPanel.Controls.Add(btnTestReconnect);
             buttonsPanel.Controls.Add(btnDisconnect);
             buttonsPanel.Controls.Add(btnConnect);
@@ -368,7 +376,7 @@ namespace Ntk.Mikrotik.Tools
 
             // Command Get Registration Table
             panel.Controls.Add(new Label { Text = "کامند Registration Table:", TextAlign = System.Drawing.ContentAlignment.MiddleRight, Dock = DockStyle.Fill }, 0, row);
-            var txtCmdRegTable = new TextBox { Name = "txtCmdRegTable", Text = "/interface wireless registration-table print detail where interface=\"{interface}\"", Dock = DockStyle.Fill };
+            var txtCmdRegTable = new TextBox { Name = "txtCmdRegTable", Text = "/interface wireless registration-table print stat where interface=\"{interface}\"", Dock = DockStyle.Fill };
             panel.Controls.Add(txtCmdRegTable, 1, row++);
 
             // Command Monitor
@@ -398,13 +406,13 @@ namespace Ntk.Mikrotik.Tools
                 return btn;
             }
             
-            var btnSave = CreateStyledButton2("ذخیره تنظیمات", "💾", Color.FromArgb(46, 125, 50), 140, 35);
+            var btnSave = CreateStyledButton2("ذخیره تنظیمات", "💾", Color.FromArgb(46, 125, 50), 200, 35);
             btnSave.Name = "btnSave";
             
-            var btnLoadResults = CreateStyledButton2("بارگذاری نتایج قبلی", "📂", Color.FromArgb(25, 118, 210), 160, 35);
+            var btnLoadResults = CreateStyledButton2("بارگذاری نتایج قبلی", "📂", Color.FromArgb(25, 118, 210), 200, 35);
             btnLoadResults.Name = "btnLoadResults";
             
-            var btnResetDefaults = CreateStyledButton2("بازگشت به پیش‌فرض", "🔄", Color.FromArgb(255, 152, 0), 150, 35);
+            var btnResetDefaults = CreateStyledButton2("بازگشت به پیش‌فرض", "🔄", Color.FromArgb(255, 152, 0), 200, 35);
             btnResetDefaults.Name = "btnResetDefaults";
             
             buttonPanel.Controls.Add(btnLoadResults);
@@ -545,6 +553,24 @@ namespace Ntk.Mikrotik.Tools
             _dgvResults.Columns.Add(new DataGridViewTextBoxColumn { Name = "RemoteTxRate", HeaderText = "Tx Rate Remote (Mbps)", DataPropertyName = "RemoteTxRate", Width = 150 });
             _dgvResults.Columns.Add(new DataGridViewTextBoxColumn { Name = "RemoteRxRate", HeaderText = "Rx Rate Remote (Mbps)", DataPropertyName = "RemoteRxRate", Width = 150 });
             _dgvResults.Columns.Add(new DataGridViewTextBoxColumn { Name = "RemoteIdentity", HeaderText = "Remote Identity", DataPropertyName = "RemoteIdentity", Width = 150 });
+            _dgvResults.Columns.Add(new DataGridViewTextBoxColumn { Name = "RemoteRadioName", HeaderText = "Remote Radio Name", DataPropertyName = "RemoteRadioName", Width = 150 });
+            _dgvResults.Columns.Add(new DataGridViewTextBoxColumn { Name = "RemoteTxCCQ", HeaderText = "Tx CCQ Remote (%)", DataPropertyName = "RemoteTxCCQ", Width = 120 });
+            _dgvResults.Columns.Add(new DataGridViewTextBoxColumn { Name = "RemoteRxCCQ", HeaderText = "Rx CCQ Remote (%)", DataPropertyName = "RemoteRxCCQ", Width = 120 });
+            _dgvResults.Columns.Add(new DataGridViewTextBoxColumn { Name = "RemotePThroughput", HeaderText = "P-Throughput Remote", DataPropertyName = "RemotePThroughput", Width = 130 });
+            _dgvResults.Columns.Add(new DataGridViewTextBoxColumn { Name = "RemoteSignalCh0", HeaderText = "Signal Ch0 Remote (dBm)", DataPropertyName = "RemoteSignalStrengthCh0", Width = 150 });
+            _dgvResults.Columns.Add(new DataGridViewTextBoxColumn { Name = "RemoteSignalCh1", HeaderText = "Signal Ch1 Remote (dBm)", DataPropertyName = "RemoteSignalStrengthCh1", Width = 150 });
+            _dgvResults.Columns.Add(new DataGridViewTextBoxColumn { Name = "RemoteTxSignalCh0", HeaderText = "Tx Signal Ch0 Remote (dBm)", DataPropertyName = "RemoteTxSignalStrengthCh0", Width = 160 });
+            _dgvResults.Columns.Add(new DataGridViewTextBoxColumn { Name = "RemoteTxSignalCh1", HeaderText = "Tx Signal Ch1 Remote (dBm)", DataPropertyName = "RemoteTxSignalStrengthCh1", Width = 160 });
+            _dgvResults.Columns.Add(new DataGridViewTextBoxColumn { Name = "RemotePacketsRx", HeaderText = "Packets Rx Remote", DataPropertyName = "RemotePacketsRx", Width = 130 });
+            _dgvResults.Columns.Add(new DataGridViewTextBoxColumn { Name = "RemotePacketsTx", HeaderText = "Packets Tx Remote", DataPropertyName = "RemotePacketsTx", Width = 130 });
+            _dgvResults.Columns.Add(new DataGridViewTextBoxColumn { Name = "RemoteBytesRx", HeaderText = "Bytes Rx Remote", DataPropertyName = "RemoteBytesRx", Width = 130 });
+            _dgvResults.Columns.Add(new DataGridViewTextBoxColumn { Name = "RemoteBytesTx", HeaderText = "Bytes Tx Remote", DataPropertyName = "RemoteBytesTx", Width = 130 });
+            _dgvResults.Columns.Add(new DataGridViewTextBoxColumn { Name = "RemoteUptime", HeaderText = "Uptime Remote", DataPropertyName = "RemoteUptime", Width = 120 });
+            _dgvResults.Columns.Add(new DataGridViewTextBoxColumn { Name = "RemoteLastActivity", HeaderText = "Last Activity Remote", DataPropertyName = "RemoteLastActivity", Width = 150 });
+            _dgvResults.Columns.Add(new DataGridViewTextBoxColumn { Name = "RemoteNstreme", HeaderText = "Nstreme Remote", DataPropertyName = "RemoteNstreme", Width = 120 });
+            _dgvResults.Columns.Add(new DataGridViewTextBoxColumn { Name = "RemoteNstremePlus", HeaderText = "Nstreme+ Remote", DataPropertyName = "RemoteNstremePlus", Width = 130 });
+            _dgvResults.Columns.Add(new DataGridViewTextBoxColumn { Name = "RemoteRouterOsVersion", HeaderText = "RouterOS Version Remote", DataPropertyName = "RemoteRouterOsVersion", Width = 170 });
+            _dgvResults.Columns.Add(new DataGridViewTextBoxColumn { Name = "RemoteLastIp", HeaderText = "Last IP Remote", DataPropertyName = "RemoteLastIp", Width = 130 });
             
             _dgvResults.Columns.Add(new DataGridViewTextBoxColumn { Name = "Status", HeaderText = "وضعیت", DataPropertyName = "Status", Width = 100 });
             _dgvResults.Columns.Add(new DataGridViewTextBoxColumn { Name = "ScanTime", HeaderText = "زمان اسکن", DataPropertyName = "ScanTime", Width = 150 });
@@ -956,7 +982,7 @@ namespace Ntk.Mikrotik.Tools
                 CommandSetWirelessProtocol = (this.Controls.Find("txtCmdSetProtocol", true).FirstOrDefault() as TextBox)?.Text ?? "/interface wireless set \"{interface}\" wireless-protocol={protocol}",
                 CommandSetChannelWidth = (this.Controls.Find("txtCmdSetChannelWidth", true).FirstOrDefault() as TextBox)?.Text ?? "/interface wireless set \"{interface}\" channel-width={channelWidth}",
                 CommandGetInterfaceInfo = (this.Controls.Find("txtCmdGetInfo", true).FirstOrDefault() as TextBox)?.Text ?? "/interface wireless print detail where name=\"{interface}\"",
-                CommandGetRegistrationTable = (this.Controls.Find("txtCmdRegTable", true).FirstOrDefault() as TextBox)?.Text ?? "/interface wireless registration-table print detail where interface=\"{interface}\"",
+                CommandGetRegistrationTable = (this.Controls.Find("txtCmdRegTable", true).FirstOrDefault() as TextBox)?.Text ?? "/interface wireless registration-table print stat where interface=\"{interface}\"",
                 CommandMonitorInterface = (this.Controls.Find("txtCmdMonitor", true).FirstOrDefault() as TextBox)?.Text ?? "/interface wireless monitor \"{interface}\" once"
             };
         }
@@ -1078,7 +1104,7 @@ namespace Ntk.Mikrotik.Tools
                 if (this.Controls.Find("txtCmdGetInfo", true).FirstOrDefault() is TextBox txtCmdGetInfo)
                     txtCmdGetInfo.Text = "/interface wireless print detail where name=\"{interface}\"";
                 if (this.Controls.Find("txtCmdRegTable", true).FirstOrDefault() is TextBox txtCmdRegTable)
-                    txtCmdRegTable.Text = "/interface wireless registration-table print detail where interface=\"{interface}\"";
+                    txtCmdRegTable.Text = "/interface wireless registration-table print stat where interface=\"{interface}\"";
                 if (this.Controls.Find("txtCmdMonitor", true).FirstOrDefault() is TextBox txtCmdMonitor)
                     txtCmdMonitor.Text = "/interface wireless monitor \"{interface}\" once";
 
@@ -1164,6 +1190,14 @@ namespace Ntk.Mikrotik.Tools
                     if (btnDisconnect != null) btnDisconnect.Enabled = true;
                     if (_btnStart != null) _btnStart.Enabled = true;
                     
+                    // Enable status button
+                    var btnStatus = this.Controls.Find("btnStatus", true).FirstOrDefault() as Button;
+                    if (btnStatus != null)
+                    {
+                        btnStatus.Enabled = true;
+                        btnStatus.BackColor = Color.FromArgb(0, 150, 136);
+                    }
+                    
                     // Collect and display base status immediately after connection
                     await CollectAndDisplayBaseStatusAsync(settings);
                     
@@ -1208,10 +1242,16 @@ namespace Ntk.Mikrotik.Tools
 
                 var btnConnect = this.Controls.Find("btnConnect", true).FirstOrDefault() as Button;
                 var btnDisconnect = this.Controls.Find("btnDisconnect", true).FirstOrDefault() as Button;
+                var btnStatus = this.Controls.Find("btnStatus", true).FirstOrDefault() as Button;
 
                 if (btnConnect != null) btnConnect.Enabled = true;
                 if (btnDisconnect != null) btnDisconnect.Enabled = false;
                 if (_btnStart != null) _btnStart.Enabled = false;
+                if (btnStatus != null)
+                {
+                    btnStatus.Enabled = false;
+                    btnStatus.BackColor = Color.FromArgb(150, 150, 150);
+                }
                 if (_lblStatus != null) _lblStatus.Text = "اتصال قطع شد.";
 
                 MessageBox.Show("اتصال به روتر قطع شد.", "اطلاع", MessageBoxButtons.OK, MessageBoxIcon.Information);
@@ -1850,6 +1890,147 @@ namespace Ntk.Mikrotik.Tools
             catch (Exception ex)
             {
                 System.Diagnostics.Debug.WriteLine($"Error setting icon: {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// Gets current status and displays it in the results grid
+        /// </summary>
+        private async Task GetCurrentStatusAsync()
+        {
+            if (!_isConnected || _sshClient == null || !_sshClient.IsConnected)
+            {
+                MessageBox.Show("لطفاً ابتدا به روتر متصل شوید.", "خطا", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                return;
+            }
+
+            try
+            {
+                var settings = GetSettingsFromForm();
+                
+                if (_lblStatus != null)
+                {
+                    _lblStatus.Text = "در حال دریافت وضعیت فعلی...";
+                }
+
+                // Create a temporary scanner instance to use its GetCurrentStatusAsync method
+                var tempScanner = new FrequencyScanner(settings, _sshClient, _jsonService);
+                
+                // Subscribe to status updates
+                tempScanner.StatusUpdate += (s, msg) =>
+                {
+                    this.Invoke((MethodInvoker)delegate
+                    {
+                        if (_lblStatus != null)
+                        {
+                            _lblStatus.Text = msg;
+                        }
+                    });
+                };
+
+                // Subscribe to terminal data
+                tempScanner.TerminalData += (s, data) =>
+                {
+                    this.Invoke((MethodInvoker)delegate
+                    {
+                        if (_txtTerminalLog != null)
+                        {
+                            _txtTerminalLog.AppendText($"[{DateTime.Now:HH:mm:ss}] {data}\r\n");
+                            _txtTerminalLog.SelectionStart = _txtTerminalLog.Text.Length;
+                            _txtTerminalLog.ScrollToCaret();
+                        }
+                    });
+                };
+
+                // Get current status
+                var statusResult = await tempScanner.GetCurrentStatusAsync();
+                
+                if (statusResult != null)
+                {
+                    statusResult.Status = "وضعیت";
+                    statusResult.ScanTime = DateTime.Now;
+                    
+                    // Add to results list
+                    this.Invoke((MethodInvoker)delegate
+                    {
+                        _allResults.Add(statusResult);
+                        _currentResults.Add(statusResult);
+                        
+                        // Refresh DataGridView
+                        if (_dgvResults != null)
+                        {
+                            _dgvResults.Refresh();
+                            _dgvResults.Update();
+                            
+                            // Scroll to the last row
+                            try
+                            {
+                                if (_dgvResults.Rows.Count > 0)
+                                {
+                                    var lastRowIndex = _dgvResults.Rows.Count - 1;
+                                    if (lastRowIndex >= 0 && lastRowIndex < _dgvResults.Rows.Count)
+                                    {
+                                        this.BeginInvoke((MethodInvoker)delegate
+                                        {
+                                            try
+                                            {
+                                                if (_dgvResults.Rows.Count > lastRowIndex)
+                                                {
+                                                    _dgvResults.FirstDisplayedScrollingRowIndex = lastRowIndex;
+                                                    _dgvResults.Rows[lastRowIndex].Selected = true;
+                                                }
+                                            }
+                                            catch
+                                            {
+                                                // Ignore scroll errors
+                                            }
+                                        });
+                                    }
+                                }
+                            }
+                            catch
+                            {
+                                // Ignore scroll errors
+                            }
+                        }
+                    });
+
+                    if (_lblStatus != null)
+                    {
+                        _lblStatus.Text = "وضعیت فعلی دریافت و نمایش داده شد.";
+                    }
+                    
+                    MessageBox.Show(
+                        $"وضعیت فعلی دریافت شد:\n" +
+                        $"فرکانس: {statusResult.Frequency} MHz\n" +
+                        $"SNR: {statusResult.SignalToNoiseRatio?.ToString("F2") ?? "N/A"} dB\n" +
+                        $"Signal: {statusResult.SignalStrength?.ToString("F2") ?? "N/A"} dBm\n" +
+                        $"Noise: {statusResult.NoiseFloor?.ToString("F2") ?? "N/A"} dBm\n" +
+                        $"CCQ: {statusResult.CCQ?.ToString("F2") ?? "N/A"}%\n" +
+                        (statusResult.RemoteSignalStrength.HasValue ? 
+                            $"Remote Signal: {statusResult.RemoteSignalStrength.Value:F2} dBm\n" : "") +
+                        (statusResult.RemoteCCQ.HasValue ? 
+                            $"Remote CCQ: {statusResult.RemoteCCQ.Value:F2}%\n" : ""),
+                        "وضعیت فعلی",
+                        MessageBoxButtons.OK,
+                        MessageBoxIcon.Information);
+                }
+                else
+                {
+                    if (_lblStatus != null)
+                    {
+                        _lblStatus.Text = "خطا در دریافت وضعیت.";
+                    }
+                    MessageBox.Show("خطا در دریافت وضعیت فعلی.", "خطا", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                }
+            }
+            catch (Exception ex)
+            {
+                if (_lblStatus != null)
+                {
+                    _lblStatus.Text = $"خطا: {ex.Message}";
+                }
+                MessageBox.Show($"خطا در دریافت وضعیت: {ex.Message}", "خطا", MessageBoxButtons.OK, MessageBoxIcon.Error);
             }
         }
 
