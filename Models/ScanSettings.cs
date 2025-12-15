@@ -13,8 +13,8 @@ namespace Ntk.Mikrotik.Tools.Models
         public string InterfaceName { get; set; } = "wlan1";
         
         // Multiple wireless-protocol and channel-width for testing combinations
-        public string WirelessProtocols { get; set; } = ""; // Comma or newline separated
-        public string ChannelWidths { get; set; } = ""; // Comma or newline separated
+        public string WirelessProtocols { get; set; } = "nstreme\r\nnv2\r\n802.11"; // Comma or newline separated
+        public string ChannelWidths { get; set; } = "20/40mhz-eC\r\n20/40mhz-Ce\r\n20mhz"; // Comma or newline separated
         
         // RouterOS Commands (can be customized)
         public string CommandGetFrequency { get; set; } = "/interface wireless print where name=\"{interface}\" value-name=frequency";

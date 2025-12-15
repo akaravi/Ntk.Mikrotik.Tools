@@ -176,13 +176,13 @@ namespace Ntk.Mikrotik.Tools
             var buttonsPanel = new FlowLayoutPanel
             {
                 Dock = DockStyle.Top,
-                Height = 35,
+                Height = 50, // increased to fully show buttons
                 FlowDirection = FlowDirection.RightToLeft,
-                Padding = new Padding(5, 0, 5, 0)
+                Padding = new Padding(8, 5, 8, 5)
             };
 
             // Helper method to create styled button with icon
-            Button CreateStyledButton(string text, string icon, Color backColor, int width = 110, int height = 30)
+            Button CreateStyledButton(string text, string icon, Color backColor, int width = 110, int height = 38)
             {
                 return new Button
                 {
@@ -197,23 +197,23 @@ namespace Ntk.Mikrotik.Tools
                 };
             }
 
-            _btnStart = CreateStyledButton("شروع اسکن", "▶", Color.FromArgb(46, 125, 50), 110, 30);
-            _btnStop = CreateStyledButton("توقف", "⏹", Color.FromArgb(198, 40, 40), 110, 30);
+            _btnStart = CreateStyledButton("شروع اسکن", "▶", Color.FromArgb(46, 125, 50), 110, 38);
+            _btnStop = CreateStyledButton("توقف", "⏹", Color.FromArgb(198, 40, 40), 110, 38);
             _btnStop.Enabled = false;
             _btnStop.BackColor = Color.FromArgb(150, 150, 150);
             
-            var btnConnect = CreateStyledButton("اتصال", "🔌", Color.FromArgb(25, 118, 210), 110, 30);
+            var btnConnect = CreateStyledButton("اتصال", "🔌", Color.FromArgb(25, 118, 210), 110, 38);
             btnConnect.Name = "btnConnect";
             
-            var btnDisconnect = CreateStyledButton("قطع اتصال", "🔌❌", Color.FromArgb(198, 40, 40), 120, 30);
+            var btnDisconnect = CreateStyledButton("قطع اتصال", "🔌❌", Color.FromArgb(198, 40, 40), 120, 38);
             btnDisconnect.Enabled = false;
             btnDisconnect.BackColor = Color.FromArgb(150, 150, 150);
             btnDisconnect.Name = "btnDisconnect";
             
-            var btnTestReconnect = CreateStyledButton("تست اتصال مجدد", "🔄", Color.FromArgb(123, 31, 162), 140, 30);
+            var btnTestReconnect = CreateStyledButton("تست اتصال مجدد", "🔄", Color.FromArgb(123, 31, 162), 140, 38);
             btnTestReconnect.Name = "btnTestReconnect";
             
-            var btnStatus = CreateStyledButton("وضعیت", "📊", Color.FromArgb(0, 150, 136), 110, 30);
+            var btnStatus = CreateStyledButton("وضعیت", "📊", Color.FromArgb(0, 150, 136), 110, 38);
             btnStatus.Name = "btnStatus";
             btnStatus.Enabled = false;
             btnStatus.BackColor = Color.FromArgb(150, 150, 150);
@@ -281,9 +281,19 @@ namespace Ntk.Mikrotik.Tools
 
         private void CreateSettingsTab(TabPage tab)
         {
-            var panel = new TableLayoutPanel
+            // Outer panel with scrolling to ensure buttons remain fully visible on small screens
+            var outerPanel = new Panel
             {
                 Dock = DockStyle.Fill,
+                AutoScroll = true,
+                Padding = new Padding(0)
+            };
+
+            var panel = new TableLayoutPanel
+            {
+                Dock = DockStyle.Top,
+                AutoSize = true,
+                AutoSizeMode = AutoSizeMode.GrowAndShrink,
                 ColumnCount = 2,
                 RowCount = 15,
                 Padding = new Padding(10)
@@ -293,6 +303,47 @@ namespace Ntk.Mikrotik.Tools
             panel.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
 
             int row = 0;
+
+            // Top action buttons (moved to top for visibility)
+            var buttonPanelTop = new FlowLayoutPanel { Dock = DockStyle.Fill, FlowDirection = FlowDirection.RightToLeft, Padding = new Padding(5) };
+            
+            Button CreateStyledButton2(string text, string icon, Color backColor, int width = 200, int height = 35)
+            {
+                var btn = new Button
+                {
+                    Text = $"{icon} {text}",
+                    Size = new System.Drawing.Size(width, height),
+                    BackColor = backColor,
+                    ForeColor = Color.White,
+                    FlatStyle = FlatStyle.Flat,
+                    Font = new System.Drawing.Font("Tahoma", 9F, System.Drawing.FontStyle.Bold),
+                    Cursor = Cursors.Hand
+                };
+                btn.FlatAppearance.BorderSize = 0;
+                btn.MouseEnter += (s, e) => { btn.BackColor = Color.FromArgb(Math.Min(255, backColor.R + 20), Math.Min(255, backColor.G + 20), Math.Min(255, backColor.B + 20)); };
+                btn.MouseLeave += (s, e) => { btn.BackColor = backColor; };
+                return btn;
+            }
+            
+            var btnSave = CreateStyledButton2("ذخیره تنظیمات", "💾", Color.FromArgb(46, 125, 50));
+            btnSave.Name = "btnSave";
+            
+            var btnLoadResults = CreateStyledButton2("بارگذاری نتایج قبلی", "📂", Color.FromArgb(25, 118, 210));
+            btnLoadResults.Name = "btnLoadResults";
+            
+            var btnResetDefaults = CreateStyledButton2("بازگشت به پیش‌فرض", "🔄", Color.FromArgb(255, 152, 0));
+            btnResetDefaults.Name = "btnResetDefaults";
+            
+            buttonPanelTop.Controls.Add(btnLoadResults);
+            buttonPanelTop.Controls.Add(btnSave);
+            buttonPanelTop.Controls.Add(btnResetDefaults);
+            
+            btnLoadResults.Click += (s, e) => LoadPreviousResults();
+            btnSave.Click += (s, e) => SaveSettings();
+            btnResetDefaults.Click += (s, e) => ResetToDefaults();
+            
+            panel.SetColumnSpan(buttonPanelTop, 2);
+            panel.Controls.Add(buttonPanelTop, 0, row++);
 
             // Router IP
             panel.Controls.Add(new Label { Text = "آدرس IP روتر:", TextAlign = System.Drawing.ContentAlignment.MiddleRight, Dock = DockStyle.Fill }, 0, row);
@@ -389,49 +440,8 @@ namespace Ntk.Mikrotik.Tools
             var txtCmdMonitor = new TextBox { Name = "txtCmdMonitor", Text = "/interface wireless monitor \"{interface}\" once", Dock = DockStyle.Fill };
             panel.Controls.Add(txtCmdMonitor, 1, row++);
 
-            // Buttons (only Save and Load Results in settings tab)
-            var buttonPanel = new FlowLayoutPanel { Dock = DockStyle.Fill, FlowDirection = FlowDirection.RightToLeft, Padding = new Padding(5) };
-            
-            // Helper method to create styled button with icon
-            Button CreateStyledButton2(string text, string icon, Color backColor, int width = 140, int height = 35)
-            {
-                var btn = new Button
-                {
-                    Text = $"{icon} {text}",
-                    Size = new System.Drawing.Size(width, height),
-                    BackColor = backColor,
-                    ForeColor = Color.White,
-                    FlatStyle = FlatStyle.Flat,
-                    Font = new System.Drawing.Font("Tahoma", 9F, System.Drawing.FontStyle.Bold),
-                    Cursor = Cursors.Hand
-                };
-                btn.FlatAppearance.BorderSize = 0;
-                btn.MouseEnter += (s, e) => { btn.BackColor = Color.FromArgb(Math.Min(255, backColor.R + 20), Math.Min(255, backColor.G + 20), Math.Min(255, backColor.B + 20)); };
-                btn.MouseLeave += (s, e) => { btn.BackColor = backColor; };
-                return btn;
-            }
-            
-            var btnSave = CreateStyledButton2("ذخیره تنظیمات", "💾", Color.FromArgb(46, 125, 50), 200, 35);
-            btnSave.Name = "btnSave";
-            
-            var btnLoadResults = CreateStyledButton2("بارگذاری نتایج قبلی", "📂", Color.FromArgb(25, 118, 210), 200, 35);
-            btnLoadResults.Name = "btnLoadResults";
-            
-            var btnResetDefaults = CreateStyledButton2("بازگشت به پیش‌فرض", "🔄", Color.FromArgb(255, 152, 0), 200, 35);
-            btnResetDefaults.Name = "btnResetDefaults";
-            
-            buttonPanel.Controls.Add(btnLoadResults);
-            buttonPanel.Controls.Add(btnSave);
-            buttonPanel.Controls.Add(btnResetDefaults);
-            
-            btnLoadResults.Click += (s, e) => LoadPreviousResults();
-            btnSave.Click += (s, e) => SaveSettings();
-            btnResetDefaults.Click += (s, e) => ResetToDefaults();
-            
-            panel.SetColumnSpan(buttonPanel, 2);
-            panel.Controls.Add(buttonPanel, 0, row);
-
-            tab.Controls.Add(panel);
+            outerPanel.Controls.Add(panel);
+            tab.Controls.Add(outerPanel);
         }
 
         private void CreateResultsAndTerminalTab(TabPage tab)
