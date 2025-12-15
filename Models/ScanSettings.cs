@@ -19,6 +19,8 @@ namespace Ntk.Mikrotik.Tools.Models
         // RouterOS Commands (can be customized)
         public string CommandGetFrequency { get; set; } = "/interface wireless print where name=\"{interface}\" value-name=frequency";
         public string CommandSetFrequency { get; set; } = "/interface wireless set \"{interface}\" frequency={frequency}";
+        public string CommandSetWirelessProtocol { get; set; } = "/interface wireless set \"{interface}\" wireless-protocol={protocol}";
+        public string CommandSetChannelWidth { get; set; } = "/interface wireless set \"{interface}\" channel-width={channelWidth}";
         public string CommandGetInterfaceInfo { get; set; } = "/interface wireless print detail where name=\"{interface}\"";
         public string CommandGetRegistrationTable { get; set; } = "/interface wireless registration-table print detail where interface=\"{interface}\"";
         public string CommandMonitorInterface { get; set; } = "/interface wireless monitor \"{interface}\" once";

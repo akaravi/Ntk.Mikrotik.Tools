@@ -185,8 +185,9 @@ namespace Ntk.Mikrotik.Tools.Services
                 if (string.IsNullOrWhiteSpace(interfaceInfo))
                 {
                     OnStatusUpdate("هشدار: هیچ پاسخی از کامند دریافت نشد. تلاش با فرمت جایگزین...");
-                    // Try alternative command format with quotes
-                    var altCommand = $"/interface wireless print detail where name=\"{_settings.InterfaceName}\"";
+                    // Try alternative command format - use CommandGetInterfaceInfo from settings
+                    var altCommand = _settings.CommandGetInterfaceInfo
+                        .Replace("{interface}", _settings.InterfaceName);
                     OnStatusUpdate($"تلاش با فرمت جایگزین: {altCommand}");
                     interfaceInfo = await _sshClient.SendCommandAsync(altCommand, 8000);
                 }
@@ -254,7 +255,9 @@ namespace Ntk.Mikrotik.Tools.Services
                 // Set wireless-protocol if specified
                 if (!string.IsNullOrEmpty(wirelessProtocol))
                 {
-                    var setProtocolCommand = $"/interface wireless set \"{_settings.InterfaceName}\" wireless-protocol={wirelessProtocol}";
+                    var setProtocolCommand = _settings.CommandSetWirelessProtocol
+                        .Replace("{interface}", _settings.InterfaceName)
+                        .Replace("{protocol}", wirelessProtocol);
                     OnStatusUpdate($"اجرای کامند: {setProtocolCommand}");
                     await _sshClient.SendCommandAsync(setProtocolCommand);
                 }
@@ -262,15 +265,49 @@ namespace Ntk.Mikrotik.Tools.Services
                 // Set channel-width if specified
                 if (!string.IsNullOrEmpty(channelWidth))
                 {
-                    var setChannelWidthCommand = $"/interface wireless set \"{_settings.InterfaceName}\" channel-width={channelWidth}";
+                    var setChannelWidthCommand = _settings.CommandSetChannelWidth
+                        .Replace("{interface}", _settings.InterfaceName)
+                        .Replace("{channelWidth}", channelWidth);
                     OnStatusUpdate($"اجرای کامند: {setChannelWidthCommand}");
                     await _sshClient.SendCommandAsync(setChannelWidthCommand);
                 }
 
                 OnStatusUpdate($"انتظار برای استیبل شدن ({_settings.StabilizationTimeMinutes} دقیقه)...");
                 
-                // Wait for stabilization
-                await Task.Delay(TimeSpan.FromMinutes(_settings.StabilizationTimeMinutes), _cancellationTokenSource?.Token ?? CancellationToken.None);
+                // Wait for stabilization with countdown timer
+                var totalSeconds = (int)(_settings.StabilizationTimeMinutes * 60);
+                var remainingSeconds = totalSeconds;
+                
+                while (remainingSeconds > 0)
+                {
+                    if (_cancellationTokenSource?.Token.IsCancellationRequested == true)
+                    {
+                        OnStatusUpdate("⏹ تایمر متوقف شد.");
+                        break;
+                    }
+                    
+                    // Update status with countdown
+                    var minutes = remainingSeconds / 60;
+                    var seconds = remainingSeconds % 60;
+                    if (minutes > 0)
+                    {
+                        OnStatusUpdate($"⏳ انتظار برای استیبل شدن: {minutes} دقیقه و {seconds} ثانیه باقی مانده...");
+                    }
+                    else
+                    {
+                        OnStatusUpdate($"⏳ انتظار برای استیبل شدن: {seconds} ثانیه باقی مانده...");
+                    }
+                    
+                    // Wait 1 second
+                    await Task.Delay(TimeSpan.FromSeconds(1), _cancellationTokenSource?.Token ?? CancellationToken.None);
+                    
+                    remainingSeconds--;
+                }
+                
+                if (remainingSeconds == 0)
+                {
+                    OnStatusUpdate("✓ زمان انتظار به پایان رسید.");
+                }
 
                 OnStatusUpdate($"در حال جمع‌آوری اطلاعات...");
 
@@ -303,17 +340,20 @@ namespace Ntk.Mikrotik.Tools.Services
                 if (string.IsNullOrWhiteSpace(info))
                 {
                     OnStatusUpdate("هشدار: هیچ پاسخی از کامند دریافت اطلاعات دریافت نشد. تلاش با فرمت جایگزین...");
-                    // Try alternative command format with quotes
-                    var altCommand = $"/interface wireless print detail where name=\"{_settings.InterfaceName}\"";
+                    // Try alternative command format - use CommandGetInterfaceInfo from settings
+                    var altCommand = _settings.CommandGetInterfaceInfo
+                        .Replace("{interface}", _settings.InterfaceName);
                     OnStatusUpdate($"تلاش با فرمت جایگزین: {altCommand}");
                     info = await _sshClient.SendCommandAsync(altCommand, 8000);
                 }
                 
-                // If still empty, try with simpler print command
+                // If still empty, try with simpler print command - use CommandGetFrequency format
                 if (string.IsNullOrWhiteSpace(info))
                 {
                     OnStatusUpdate("تلاش با کامند print ساده‌تر...");
-                    var printCommand = $"/interface wireless print where name=\"{_settings.InterfaceName}\"";
+                    var printCommand = _settings.CommandGetFrequency
+                        .Replace("{interface}", _settings.InterfaceName)
+                        .Replace(" value-name=frequency", ""); // Remove value-name restriction for full output
                     OnStatusUpdate($"اجرای کامند: {printCommand}");
                     info = await _sshClient.SendCommandAsync(printCommand, 8000);
                 }
@@ -429,10 +469,25 @@ namespace Ntk.Mikrotik.Tools.Services
                         result.CCQ = overallCcq;
                     }
                     
-                    // Parse wireless-protocol from monitor if not found in info
-                    if (string.IsNullOrEmpty(result.WirelessProtocol))
+                    // Parse wireless-protocol from monitor (more accurate than info)
+                    var monitorProtocol = ParseStringValue(monitor, "wireless-protocol");
+                    if (!string.IsNullOrEmpty(monitorProtocol))
                     {
-                        result.WirelessProtocol = ParseStringValue(monitor, "wireless-protocol");
+                        result.WirelessProtocol = monitorProtocol;
+                    }
+                    
+                    // Parse channel-width from monitor (more accurate than info)
+                    var monitorChannelWidth = ParseStringValue(monitor, "channel-width");
+                    if (!string.IsNullOrEmpty(monitorChannelWidth))
+                    {
+                        result.ChannelWidth = monitorChannelWidth;
+                    }
+                    
+                    // Parse band from monitor if available
+                    var monitorBand = ParseStringValue(monitor, "band");
+                    if (!string.IsNullOrEmpty(monitorBand))
+                    {
+                        result.Band = monitorBand;
                     }
                     
                     // Parse channel to extract frequency if needed
@@ -537,7 +592,13 @@ namespace Ntk.Mikrotik.Tools.Services
             if (string.IsNullOrEmpty(text))
                 return null;
 
-            // RouterOS output format: "key: value" or "key=value"
+            // RouterOS output format can be:
+            // 1. "key: value" (single line)
+            // 2. "key=value" (single line) - MOST COMMON FORMAT
+            // 3. "key=value1 key2=value2 key3=value3" (multiple key-value pairs in one line, space-separated)
+            // 4. "some-text key=value more-text" (key-value embedded in text)
+            // Example: "band=5ghz-onlyn channel-width=20/40mhz-eC wireless-protocol=nv2"
+            
             var lines = text.Split(new[] { '\n', '\r' }, StringSplitOptions.RemoveEmptyEntries);
             
             foreach (var line in lines)
@@ -546,22 +607,131 @@ namespace Ntk.Mikrotik.Tools.Services
                 if (string.IsNullOrEmpty(trimmedLine))
                     continue;
 
-                // Skip command prompts
-                if (trimmedLine.Contains(">") || trimmedLine.Contains("#") || trimmedLine.Contains("@"))
+                // Skip comment lines and command prompts
+                if (trimmedLine.StartsWith(";;;") || trimmedLine.StartsWith(">") || 
+                    trimmedLine.StartsWith("#") || trimmedLine.StartsWith("@") ||
+                    trimmedLine.StartsWith("Flags:") || trimmedLine.StartsWith(" 0") || trimmedLine.StartsWith(" 1"))
                     continue;
 
-                // Try different separators
-                string[] separators = { ":", "=" };
-                foreach (var separator in separators)
+                // RouterOS typically uses "key=value" format, space-separated
+                // Try to find "key=value" pattern (most common)
+                var keyEqualPattern = key + "=";
+                var keyEqualIndex = trimmedLine.IndexOf(keyEqualPattern, StringComparison.OrdinalIgnoreCase);
+                
+                if (keyEqualIndex >= 0)
                 {
-                    if (trimmedLine.Contains(key + separator) || trimmedLine.StartsWith(key + separator))
+                    // Check if this is really our key (not part of another word)
+                    // Key should be at start of line, after space, or after another key-value separator
+                    var beforeKey = keyEqualIndex > 0 ? trimmedLine[keyEqualIndex - 1] : ' ';
+                    if (char.IsLetterOrDigit(beforeKey) && beforeKey != ' ' && beforeKey != '\t')
                     {
-                        var index = trimmedLine.IndexOf(separator);
-                        if (index >= 0 && index < trimmedLine.Length - 1)
+                        continue; // This is part of another word, skip
+                    }
+                    
+                    // Extract value after "key="
+                    var valueStart = keyEqualIndex + keyEqualPattern.Length;
+                    if (valueStart < trimmedLine.Length)
+                    {
+                        var remaining = trimmedLine.Substring(valueStart);
+                        
+                        // Value ends at:
+                        // 1. Next space followed by a key= pattern
+                        // 2. End of line
+                        // 3. Quote (if value is quoted)
+                        
+                        var valueEnd = remaining.Length;
+                        var inQuotes = false;
+                        var quoteChar = '\0';
+                        
+                        for (int i = 0; i < remaining.Length; i++)
                         {
-                            var valueStr = trimmedLine.Substring(index + 1).Trim();
+                            var ch = remaining[i];
                             
-                            // Return the value as string (may contain spaces, e.g., "2ghz-b/g/n")
+                            // Handle quoted values
+                            if ((ch == '"' || ch == '\'') && !inQuotes)
+                            {
+                                inQuotes = true;
+                                quoteChar = ch;
+                                continue;
+                            }
+                            
+                            if (inQuotes && ch == quoteChar)
+                            {
+                                inQuotes = false;
+                                valueEnd = i + 1;
+                                break;
+                            }
+                            
+                            if (!inQuotes)
+                            {
+                                // If we hit a space, check if next token is a key= pattern
+                                if (char.IsWhiteSpace(ch))
+                                {
+                                    var afterSpace = remaining.Substring(i + 1).TrimStart();
+                                    // Check if next token looks like "key="
+                                    if (afterSpace.Length > 0)
+                                    {
+                                        var nextSpaceIndex = afterSpace.IndexOfAny(new[] { ' ', '=', ':' });
+                                        if (nextSpaceIndex > 0 && afterSpace[nextSpaceIndex] == '=')
+                                        {
+                                            // Next token is a key=value pair, so our value ends here
+                                            valueEnd = i;
+                                            break;
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        
+                        var valueStr = remaining.Substring(0, valueEnd).Trim();
+                        
+                        // Remove quotes if present
+                        if (valueStr.Length >= 2 && 
+                            ((valueStr[0] == '"' && valueStr[valueStr.Length - 1] == '"') ||
+                             (valueStr[0] == '\'' && valueStr[valueStr.Length - 1] == '\'')))
+                        {
+                            valueStr = valueStr.Substring(1, valueStr.Length - 2);
+                        }
+                        
+                        // Return the clean value
+                        if (!string.IsNullOrEmpty(valueStr))
+                        {
+                            return valueStr;
+                        }
+                    }
+                }
+                
+                // Fallback: Try "key: value" format (less common in RouterOS)
+                var keyColonPattern = key + ":";
+                var keyColonIndex = trimmedLine.IndexOf(keyColonPattern, StringComparison.OrdinalIgnoreCase);
+                
+                if (keyColonIndex >= 0)
+                {
+                    var beforeKey = keyColonIndex > 0 ? trimmedLine[keyColonIndex - 1] : ' ';
+                    if (char.IsLetterOrDigit(beforeKey) && beforeKey != ' ' && beforeKey != '\t')
+                    {
+                        continue;
+                    }
+                    
+                    var valueStart = keyColonIndex + keyColonPattern.Length;
+                    if (valueStart < trimmedLine.Length)
+                    {
+                        var remaining = trimmedLine.Substring(valueStart).Trim();
+                        
+                        // For colon format, value typically ends at next space or end of line
+                        var spaceIndex = remaining.IndexOf(' ');
+                        var valueStr = spaceIndex > 0 ? remaining.Substring(0, spaceIndex) : remaining;
+                        
+                        // Remove quotes if present
+                        if (valueStr.Length >= 2 && 
+                            ((valueStr[0] == '"' && valueStr[valueStr.Length - 1] == '"') ||
+                             (valueStr[0] == '\'' && valueStr[valueStr.Length - 1] == '\'')))
+                        {
+                            valueStr = valueStr.Substring(1, valueStr.Length - 2);
+                        }
+                        
+                        if (!string.IsNullOrEmpty(valueStr))
+                        {
                             return valueStr;
                         }
                     }
