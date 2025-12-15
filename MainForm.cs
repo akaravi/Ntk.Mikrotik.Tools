@@ -269,6 +269,11 @@ namespace Ntk.Mikrotik.Tools
             CreateResultsAndTerminalTab(resultsTab);
             tabControl.TabPages.Add(resultsTab);
 
+            // About Tab
+            var aboutTab = new TabPage("درباره ما");
+            CreateAboutTab(aboutTab);
+            tabControl.TabPages.Add(aboutTab);
+
             this.Controls.Add(tabControl);
             this.Controls.Add(topPanel);
             this.ResumeLayout(false);
@@ -960,6 +965,117 @@ namespace Ntk.Mikrotik.Tools
             panel.Controls.Add(buttonPanel);
 
             tab.Controls.Add(panel);
+        }
+
+        private void CreateAboutTab(TabPage tab)
+        {
+            tab.BackColor = Color.White;
+            tab.Padding = new Padding(10);
+
+            var mainLayout = new TableLayoutPanel
+            {
+                Dock = DockStyle.Fill,
+                ColumnCount = 1,
+                RowCount = 4,
+                AutoSize = true,
+                AutoSizeMode = AutoSizeMode.GrowAndShrink
+            };
+            mainLayout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+            mainLayout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+            mainLayout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+            mainLayout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+
+            var titleLabel = new Label
+            {
+                Text = "درباره ابزار و توسعه‌دهنده",
+                Dock = DockStyle.Top,
+                AutoSize = true,
+                Font = new System.Drawing.Font("Tahoma", 12F, System.Drawing.FontStyle.Bold),
+                Padding = new Padding(0, 0, 0, 10)
+            };
+
+            var descriptionBox = new TextBox
+            {
+                Multiline = true,
+                ReadOnly = true,
+                BorderStyle = BorderStyle.FixedSingle,
+                BackColor = Color.WhiteSmoke,
+                Dock = DockStyle.Top,
+                Height = 160,
+                ScrollBars = ScrollBars.Vertical,
+                Text =
+                    "این برنامه برای اسکن و بهینه‌سازی فرکانس در روترهای MikroTik طراحی شده است تا بهترین کیفیت لینک Point-to-Point را پیدا کند.\r\n" +
+                    "با اتصال امن SSH، ترکیب‌های مختلف فرکانس، پروتکل و Channel Width را تست می‌کند، نتایج را به‌صورت زنده نمایش می‌دهد و امکان ذخیره در فایل JSON را فراهم می‌کند.\r\n\r\n" +
+                    "تمام رابط کاربری به زبان فارسی است و شامل فیلتر، مرتب‌سازی، لاگ ترمینال و مدیریت تنظیمات می‌باشد."
+            };
+
+            var infoLayout = new TableLayoutPanel
+            {
+                Dock = DockStyle.Top,
+                ColumnCount = 2,
+                AutoSize = true,
+                AutoSizeMode = AutoSizeMode.GrowAndShrink,
+                Padding = new Padding(0, 10, 0, 10)
+            };
+            infoLayout.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 180));
+            infoLayout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+
+            void AddInfoRow(string title, string value)
+            {
+                var titleLabelLocal = new Label
+                {
+                    Text = title,
+                    TextAlign = System.Drawing.ContentAlignment.MiddleRight,
+                    Dock = DockStyle.Fill,
+                    AutoSize = true,
+                    Font = new System.Drawing.Font("Tahoma", 9F, System.Drawing.FontStyle.Bold)
+                };
+
+                var valueLabel = new Label
+                {
+                    Text = value,
+                    TextAlign = System.Drawing.ContentAlignment.MiddleLeft,
+                    Dock = DockStyle.Fill,
+                    AutoSize = true,
+                    MaximumSize = new Size(900, 0),
+                    AutoEllipsis = true
+                };
+
+                var rowIndex = infoLayout.RowCount++;
+                infoLayout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+                infoLayout.Controls.Add(titleLabelLocal, 0, rowIndex);
+                infoLayout.Controls.Add(valueLabel, 1, rowIndex);
+            }
+
+            var developerName = Environment.UserName;
+            var projectLocation = AppDomain.CurrentDomain.BaseDirectory;
+
+            AddInfoRow("نام پروژه", "اسکنر فرکانس میکروتیک (Ntk.Mikrotik.Tools)");
+            AddInfoRow("نسخه برنامه", Application.ProductVersion);
+            AddInfoRow("پلتفرم", ".NET 8.0 - Windows Forms");
+            AddInfoRow("توسعه‌دهنده", "Alireza Karavi");
+            AddInfoRow("ایمیل‌های تماس", "info@alikaravi.com | karavi.alireza@gmail.com");
+            AddInfoRow("محل فعالیت", "Dubai, UAE");
+            AddInfoRow("شماره تماس", "(00971) 504504324");
+            AddInfoRow("مهارت‌های کلیدی", "C# (WinForms, WebForms, MVC), .NET Core, Angular, Microservices, GraphQL, SignalR, SQL Server, MongoDB, MySQL, Docker, ESXi, Mikrotik, VoIP/Asterisk, Zabbix, WordPress، هوش مصنوعی و چت‌بات");
+            AddInfoRow("تجربه", "بنیان‌گذار NTK (2005-اکنون)، مدیر پروژه در Arad (2015-اکنون)، مدیر پروژه در Arad ITC هند (2020-اکنون)، Founder Karavi Co. کانادا (2022-اکنون)");
+            AddInfoRow("تحصیلات", "Master AI & Robotics (IAU Isfahan, 2024-2025) | MBA (University of Tehran, 2022-2024) | BSc Industrial Engineering (IAU Najafabad, 1999-2002)");
+            AddInfoRow("مسیر اجرا/نصب", projectLocation);
+
+            var footerLabel = new Label
+            {
+                Text = "در صورت نیاز به پشتیبانی یا پیشنهاد، اطلاعات بالا را به‌روزرسانی کنید و با تیم توسعه در تماس باشید.",
+                Dock = DockStyle.Top,
+                AutoSize = true,
+                Padding = new Padding(0, 10, 0, 0)
+            };
+
+            mainLayout.Controls.Add(titleLabel, 0, 0);
+            mainLayout.Controls.Add(descriptionBox, 0, 1);
+            mainLayout.Controls.Add(infoLayout, 0, 2);
+            mainLayout.Controls.Add(footerLabel, 0, 3);
+
+            tab.Controls.Add(mainLayout);
         }
 
         private ScanSettings GetSettingsFromForm()
