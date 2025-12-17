@@ -1,0 +1,145 @@
+{
+  "FormTitle": "اسکنر فرکانس میکروتیک",
+  "StatusReady": "آماده",
+  "BtnStartScan": "شروع اسکن",
+  "BtnStop": "توقف",
+  "BtnConnect": "اتصال",
+  "BtnDisconnect": "قطع اتصال",
+  "BtnTestReconnect": "تست اتصال مجدد",
+  "BtnStatus": "وضعیت",
+  "TabSettings": "⚙️ تنظیمات",
+  "TabResults": "📊 نتایج و لاگ",
+  "TabCharts": "📈 نمودارها",
+  "TabAbout": "ℹ️ درباره ما",
+  "BtnSaveSettings": "ذخیره تنظیمات",
+  "BtnLoadResults": "بارگذاری نتایج قبلی",
+  "BtnResetDefaults": "بازگشت به پیش‌فرض",
+  "LabelRouterIp": "آدرس IP روتر:",
+  "LabelSshPort": "پورت SSH:",
+  "LabelUsername": "نام کاربری:",
+  "LabelPassword": "رمز عبور:",
+  "LabelStartFrequency": "فرکانس شروع (MHz):",
+  "LabelEndFrequency": "فرکانس پایان (MHz):",
+  "LabelFrequencyStep": "پرش فرکانس (MHz):",
+  "LabelStabilizationTime": "زمان استیبل شدن (دقیقه):",
+  "LabelInterfaceName": "نام اینترفیس:",
+  "LabelPingTestIp": "آدرس IP تست پینگ:",
+  "LabelWirelessProtocols": "Wireless Protocols\n(جدا شده با کاما یا خط جدید):",
+  "LabelChannelWidths": "Channel Widths\n(جدا شده با کاما یا خط جدید):",
+  "LabelRouterOSCommands": "کامندهای RouterOS (پیشرفته):",
+  "LabelCmdValidateInterface": "کامند اعتبارسنجی اینترفیس:",
+  "LabelCmdGetFrequency": "کامند دریافت فرکانس:",
+  "LabelCmdGetInfo": "کامند دریافت اطلاعات:",
+  "LabelCmdRegTable": "کامند Registration Table:",
+  "LabelCmdMonitor": "کامند Monitor:",
+  "LabelCmdSetFrequency": "کامند تنظیم فرکانس:",
+  "LabelCmdSetProtocol": "کامند تنظیم Wireless Protocol:",
+  "LabelCmdSetChannelWidth": "کامند تنظیم Channel Width:",
+  "LabelTerminalLog": "لاگ ترمینال:",
+  "BtnClear": "🗑 پاک کردن",
+  "LabelScanResults": "نتایج اسکن:",
+  "LabelFilter": "فیلتر:",
+  "ColumnFrequency": "فرکانس (MHz)",
+  "ColumnSNR": "SNR (dB)",
+  "ColumnSignal": "قدرت سیگنال (dBm)",
+  "ColumnNoise": "نویز (dBm)",
+  "ColumnPower": "توان آنتن (dBm)",
+  "ColumnDownload": "سرعت دانلود (Mbps)",
+  "ColumnUpload": "سرعت آپلود (Mbps)",
+  "ColumnCCQ": "CCQ (%)",
+  "ColumnTxRate": "Tx Rate (Mbps)",
+  "ColumnRxRate": "Rx Rate (Mbps)",
+  "ColumnBand": "Band",
+  "ColumnChannelWidth": "Channel Width",
+  "ColumnWirelessProtocol": "Wireless Protocol",
+  "ColumnRemoteSignal": "سیگنال Remote (dBm)",
+  "ColumnRemoteSNR": "SNR Remote (dB)",
+  "ColumnRemoteCCQ": "CCQ Remote (%)",
+  "ColumnRemoteTxRate": "Tx Rate Remote (Mbps)",
+  "ColumnRemoteRxRate": "Rx Rate Remote (Mbps)",
+  "ColumnRemoteIdentity": "Remote Identity",
+  "ColumnRemoteRadioName": "Remote Radio Name",
+  "ColumnRemoteTxCCQ": "Tx CCQ Remote (%)",
+  "ColumnRemoteRxCCQ": "Rx CCQ Remote (%)",
+  "ColumnRemotePThroughput": "P-Throughput Remote",
+  "ColumnRemoteSignalCh0": "Signal Ch0 Remote (dBm)",
+  "ColumnRemoteSignalCh1": "Signal Ch1 Remote (dBm)",
+  "ColumnPingSuccess": "Ping موفق",
+  "ColumnPingTime": "زمان Ping (ms)",
+  "ColumnPingMinTime": "حداقل Ping (ms)",
+  "ColumnPingMaxTime": "حداکثر Ping (ms)",
+  "ColumnPingAverageTime": "میانگین Ping (ms)",
+  "ColumnPingPacketsSent": "بسته‌های ارسالی",
+  "ColumnPingPacketsReceived": "بسته‌های دریافتی",
+  "ColumnPingPacketsLost": "بسته‌های از دست رفته",
+  "ColumnPingLossPercentage": "درصد از دست رفتن (%)",
+  "ColumnPingTestIpAddress": "آدرس IP تست Ping",
+  "ColumnStatus": "وضعیت",
+  "ColumnScanTime": "زمان اسکن",
+  "Yes": "بله",
+  "No": "خیر",
+  "StatusBase": "base",
+  "StatusSuccess": "موفق",
+  "StatusError": "خطا",
+  "MsgSettingsSaved": "تنظیمات ذخیره شد.",
+  "MsgSuccess": "موفق",
+  "MsgError": "خطا",
+  "MsgErrorSavingSettings": "خطا در ذخیره تنظیمات.",
+  "MsgConfirmReset": "آیا مطمئن هستید که می‌خواهید تمام تنظیمات را به مقادیر پیش‌فرض بازگردانید؟",
+  "MsgConfirm": "تأیید",
+  "MsgSettingsReset": "تنظیمات به مقادیر پیش‌فرض بازگردانده شد.",
+  "MsgAlreadyConnected": "در حال حاضر به روتر متصل هستید.",
+  "MsgInfo": "اطلاع",
+  "MsgEnterRouterIp": "لطفاً آدرس IP روتر را وارد کنید.",
+  "MsgEnterUsername": "لطفاً نام کاربری را وارد کنید.",
+  "MsgConnectionSuccess": "اتصال به روتر با موفقیت برقرار شد و اطلاعات پایه دریافت شد.",
+  "MsgConnectionError": "خطا در اتصال به روتر. لطفاً IP، پورت، نام کاربری و رمز عبور را بررسی کنید.",
+  "MsgDisconnected": "اتصال به روتر قطع شد.",
+  "MsgReconnectTestResult": "نتیجه تست اتصال مجدد",
+  "MsgNoResultFiles": "هیچ فایل نتیجه‌ای یافت نشد.",
+  "MsgResultsLoaded": "{0} نتیجه بارگذاری شد.",
+  "MsgInvalidFile": "فایل انتخاب شده معتبر نیست یا خالی است.",
+  "MsgConnectFirst": "لطفاً ابتدا به روتر متصل شوید.",
+  "MsgSettingsErrors": "لطفاً خطاهای زیر را برطرف کنید:\n\n{0}",
+  "MsgSettingsErrorTitle": "خطا در تنظیمات",
+  "MsgStatusError": "خطا در دریافت وضعیت فعلی.",
+  "ErrorStartup": "خطا در راه‌اندازی برنامه",
+  "ErrorInContext": "خطا در {0}",
+  "ErrorInner": "خطای داخلی",
+  "ErrorType": "نوع خطا",
+  "ErrorTechnicalDetails": "جزئیات فنی",
+  "ErrorContactSupport": "⚠️ اگر مشکل ادامه داشت، لطفاً این پیام را به پشتیبانی اطلاع دهید.",
+  "ErrorUnexpected": "خطای غیرمنتظره رخ داد. لطفاً به پشتیبانی اطلاع دهید.",
+  "ErrorUnexpectedInApp": "خطای غیرمنتظره در برنامه",
+  "ErrorUnexpectedInDomain": "خطای غیرمنتظره در دامنه برنامه",
+  "ErrorApp": "خطای برنامه",
+  "AboutTitle": "درباره ابزار و توسعه‌دهنده",
+  "AboutDescription": "این برنامه برای اسکن و بهینه‌سازی فرکانس در روترهای MikroTik طراحی شده است تا بهترین کیفیت لینک Point-to-Point را پیدا کند.\r\nبا اتصال امن SSH، ترکیب‌های مختلف فرکانس، پروتکل و Channel Width را تست می‌کند، نتایج را به‌صورت زنده نمایش می‌دهد و امکان ذخیره در فایل JSON را فراهم می‌کند.\r\n\r\nتمام رابط کاربری به زبان فارسی است و شامل فیلتر، مرتب‌سازی، لاگ ترمینال و مدیریت تنظیمات می‌باشد.",
+  "AboutProjectName": "نام پروژه",
+  "AboutProjectValue": "اسکنر فرکانس میکروتیک (Ntk.Mikrotik.Tools)",
+  "AboutVersion": "نسخه برنامه",
+  "AboutPlatform": "پلتفرم",
+  "AboutPlatformValue": ".NET 8.0 - Windows Forms",
+  "AboutDeveloper": "توسعه‌دهنده",
+  "AboutDeveloperValue": "Alireza Karavi",
+  "AboutContactEmails": "ایمیل‌های تماس",
+  "AboutContactEmailsValue": "info@alikaravi.com | karavi.alireza@gmail.com",
+  "AboutLocation": "محل فعالیت",
+  "AboutLocationValue": "Dubai, UAE",
+  "AboutPhone": "شماره تماس",
+  "AboutPhoneValue": "(00971) 504504324",
+  "AboutSkills": "مهارت‌های کلیدی",
+  "AboutSkillsValue": "C# (WinForms, WebForms, MVC), .NET Core, Angular, Microservices, GraphQL, SignalR, SQL Server, MongoDB, MySQL, Docker, ESXi, Mikrotik, VoIP/Asterisk, Zabbix, WordPress، هوش مصنوعی و چت‌بات",
+  "AboutExperience": "تجربه",
+  "AboutExperienceValue": "بنیان‌گذار NTK (2005-اکنون)، مدیر پروژه در Arad (2015-اکنون)، مدیر پروژه در Arad ITC هند (2020-اکنون)، Founder Karavi Co. کانادا (2022-اکنون)",
+  "AboutEducation": "تحصیلات",
+  "AboutEducationValue": "Master AI & Robotics (IAU Isfahan, 2024-2025) | MBA (University of Tehran, 2022-2024) | BSc Industrial Engineering (IAU Najafabad, 1999-2002)",
+  "AboutInstallPath": "مسیر اجرا/نصب",
+  "AboutFooter": "در صورت نیاز به پشتیبانی یا پیشنهاد، اطلاعات بالا را به‌روزرسانی کنید و با تیم توسعه در تماس باشید.",
+  "Language": "زبان",
+  "LanguagePersian": "فارسی",
+  "LanguageArabic": "العربية",
+  "LanguageEnglish": "English",
+  "LanguageGerman": "Deutsch"
+}
+

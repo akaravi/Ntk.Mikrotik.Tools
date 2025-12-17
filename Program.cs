@@ -1,6 +1,7 @@
 using System;
 using System.Windows.Forms;
 using System.Drawing;
+using Ntk.Mikrotik.Tools.Services;
 
 namespace Ntk.Mikrotik.Tools
 {
@@ -21,25 +22,26 @@ namespace Ntk.Mikrotik.Tools
                 {
                     try
                     {
-                        var errorMessage = $"خطا در برنامه:\n\n{e.Exception.Message}";
+                        var loc = LocalizationService.Instance;
+                        var errorMessage = $"{loc.GetString("ErrorUnexpectedInApp", "خطای غیرمنتظره در برنامه")}:\n\n{e.Exception.Message}";
                         
                         if (e.Exception.InnerException != null)
                         {
-                            errorMessage += $"\n\nخطای داخلی: {e.Exception.InnerException.Message}";
+                            errorMessage += $"\n\n{loc.GetString("ErrorInner", "خطای داخلی")}: {e.Exception.InnerException.Message}";
                         }
                         
-                        errorMessage += $"\n\nنوع خطا: {e.Exception.GetType().Name}";
+                        errorMessage += $"\n\n{loc.GetString("ErrorType", "نوع خطا")}: {e.Exception.GetType().Name}";
                         
                         if (!string.IsNullOrEmpty(e.Exception.StackTrace))
                         {
-                            errorMessage += $"\n\nجزئیات فنی:\n{e.Exception.StackTrace.Substring(0, Math.Min(500, e.Exception.StackTrace.Length))}...";
+                            errorMessage += $"\n\n{loc.GetString("ErrorTechnicalDetails", "جزئیات فنی")}:\n{e.Exception.StackTrace.Substring(0, Math.Min(500, e.Exception.StackTrace.Length))}...";
                         }
                         
-                        errorMessage += "\n\n⚠️ اگر مشکل ادامه داشت، لطفاً این پیام را به پشتیبانی اطلاع دهید.";
+                        errorMessage += $"\n\n{loc.GetString("ErrorContactSupport", "⚠️ اگر مشکل ادامه داشت، لطفاً این پیام را به پشتیبانی اطلاع دهید.")}";
                         
                         MessageBox.Show(
                             errorMessage,
-                            "خطای غیرمنتظره در برنامه",
+                            loc.GetString("ErrorUnexpectedInApp", "خطای غیرمنتظره در برنامه"),
                             MessageBoxButtons.OK,
                             MessageBoxIcon.Error);
                     }
@@ -48,9 +50,10 @@ namespace Ntk.Mikrotik.Tools
                         // If even showing error fails, try simple message
                         try
                         {
+                            var loc = LocalizationService.Instance;
                             MessageBox.Show(
-                                $"خطای غیرمنتظره رخ داد. لطفاً به پشتیبانی اطلاع دهید.\n\n{e.Exception.Message}",
-                                "خطا",
+                                $"{loc.GetString("ErrorUnexpected", "خطای غیرمنتظره رخ داد. لطفاً به پشتیبانی اطلاع دهید.")}\n\n{e.Exception.Message}",
+                                loc.GetString("MsgError", "خطا"),
                                 MessageBoxButtons.OK,
                                 MessageBoxIcon.Error);
                         }
@@ -67,25 +70,26 @@ namespace Ntk.Mikrotik.Tools
                     {
                         if (e.ExceptionObject is Exception ex)
                         {
-                            var errorMessage = $"خطا در دامنه برنامه:\n\n{ex.Message}";
+                            var loc = LocalizationService.Instance;
+                            var errorMessage = $"{loc.GetString("ErrorUnexpectedInDomain", "خطای غیرمنتظره در دامنه برنامه")}:\n\n{ex.Message}";
                             
                             if (ex.InnerException != null)
                             {
-                                errorMessage += $"\n\nخطای داخلی: {ex.InnerException.Message}";
+                                errorMessage += $"\n\n{loc.GetString("ErrorInner", "خطای داخلی")}: {ex.InnerException.Message}";
                             }
                             
-                            errorMessage += $"\n\nنوع خطا: {ex.GetType().Name}";
+                            errorMessage += $"\n\n{loc.GetString("ErrorType", "نوع خطا")}: {ex.GetType().Name}";
                             
                             if (!string.IsNullOrEmpty(ex.StackTrace))
                             {
-                                errorMessage += $"\n\nجزئیات فنی:\n{ex.StackTrace.Substring(0, Math.Min(500, ex.StackTrace.Length))}...";
+                                errorMessage += $"\n\n{loc.GetString("ErrorTechnicalDetails", "جزئیات فنی")}:\n{ex.StackTrace.Substring(0, Math.Min(500, ex.StackTrace.Length))}...";
                             }
                             
-                            errorMessage += "\n\n⚠️ اگر مشکل ادامه داشت، لطفاً این پیام را به پشتیبانی اطلاع دهید.";
+                            errorMessage += $"\n\n{loc.GetString("ErrorContactSupport", "⚠️ اگر مشکل ادامه داشت، لطفاً این پیام را به پشتیبانی اطلاع دهید.")}";
                             
                             MessageBox.Show(
                                 errorMessage,
-                                "خطای غیرمنتظره در دامنه برنامه",
+                                loc.GetString("ErrorUnexpectedInDomain", "خطای غیرمنتظره در دامنه برنامه"),
                                 MessageBoxButtons.OK,
                                 MessageBoxIcon.Error);
                         }
@@ -104,13 +108,14 @@ namespace Ntk.Mikrotik.Tools
             catch (Exception ex)
             {
                 // Global exception handler - prevent application crash
-                var errorMessage = $"خطای غیرمنتظره در برنامه:\n\n{ex.Message}\n\n" +
-                                  $"نوع خطا: {ex.GetType().Name}\n\n" +
-                                  $"لطفاً این پیام را به پشتیبانی اطلاع دهید.";
+                var loc = LocalizationService.Instance;
+                var errorMessage = $"{loc.GetString("ErrorUnexpectedInApp", "خطای غیرمنتظره در برنامه")}:\n\n{ex.Message}\n\n" +
+                                  $"{loc.GetString("ErrorType", "نوع خطا")}: {ex.GetType().Name}\n\n" +
+                                  $"{loc.GetString("ErrorContactSupport", "لطفاً این پیام را به پشتیبانی اطلاع دهید.")}";
                 
                 MessageBox.Show(
                     errorMessage,
-                    "خطای برنامه",
+                    loc.GetString("ErrorApp", "خطای برنامه"),
                     MessageBoxButtons.OK,
                     MessageBoxIcon.Error);
                 

@@ -92,6 +92,7 @@ namespace Ntk.Mikrotik.Tools
         private SettingsService _settingsService;
         private ConnectionService _connectionService;
         private DataFilterService _dataFilterService;
+        private LocalizationService _localizationService;
         private BindingList<FrequencyScanResult> _currentResults;
         private BindingSource? _bindingSource;
         private List<FrequencyScanResult> _allResults; // Store all results for filtering
@@ -100,6 +101,9 @@ namespace Ntk.Mikrotik.Tools
         
         // Base settings to restore after scan
         private FrequencyScanResult? _baseSettings;
+        
+        // Language selector
+        private ComboBox? _cmbLanguage;
         
         // Control references
         private TextBox? _txtRouterIp;
@@ -128,40 +132,50 @@ namespace Ntk.Mikrotik.Tools
             _settingsService = new SettingsService();
             _connectionService = new ConnectionService();
             _dataFilterService = new DataFilterService();
+            _localizationService = LocalizationService.Instance;
             _currentResults = new BindingList<FrequencyScanResult>();
             _allResults = new List<FrequencyScanResult>();
             _bindingSource = new BindingSource();
             _columnNameToPropertyMap = new Dictionary<string, string>();
             
+            // Subscribe to language change event
+            _localizationService.LanguageChanged += (s, e) => UpdateAllTexts();
+            
             try
             {
+                // Load settings first to get language preference
+                var settings = _settingsService.LoadSettings();
+                _localizationService.LoadLanguage(settings.Language ?? "fa");
+                
                 InitializeComponent();
                 LoadSettings();
+                UpdateAllTexts();
             }
             catch (Exception ex)
             {
                 // اگر حتی ساخت فرم هم خطا داد، خطا را نمایش بده
                 try
                 {
-                    var errorDetails = $"خطا در راه‌اندازی برنامه:\n\n{ex.Message}";
+                    var loc = LocalizationService.Instance;
+                    var errorDetails = string.Format(loc.GetString("ErrorInContext", "خطا در {0}"), loc.GetString("ErrorStartup", "راه‌اندازی برنامه")) + $":\n\n{ex.Message}";
                     
                     if (ex.InnerException != null)
                     {
-                        errorDetails += $"\n\nخطای داخلی: {ex.InnerException.Message}";
+                        errorDetails += $"\n\n{loc.GetString("ErrorInner", "خطای داخلی")}: {ex.InnerException.Message}";
                     }
                     
-                    errorDetails += $"\n\nنوع خطا: {ex.GetType().Name}";
+                    errorDetails += $"\n\n{loc.GetString("ErrorType", "نوع خطا")}: {ex.GetType().Name}";
                     
                     if (!string.IsNullOrEmpty(ex.StackTrace))
                     {
-                        errorDetails += $"\n\nجزئیات فنی:\n{ex.StackTrace.Substring(0, Math.Min(500, ex.StackTrace.Length))}...";
+                        errorDetails += $"\n\n{loc.GetString("ErrorTechnicalDetails", "جزئیات فنی")}:\n{ex.StackTrace.Substring(0, Math.Min(500, ex.StackTrace.Length))}...";
                     }
                     
-                    errorDetails += "\n\n⚠️ لطفاً این پیام را به پشتیبانی اطلاع دهید.";
+                    errorDetails += $"\n\n{loc.GetString("ErrorContactSupport", "⚠️ اگر مشکل ادامه داشت، لطفاً این پیام را به پشتیبانی اطلاع دهید.")}";
                     
                     MessageBox.Show(
                         errorDetails,
-                        "خطای راه‌اندازی",
+                        loc.GetString("ErrorStartup", "خطای راه‌اندازی"),
                         MessageBoxButtons.OK,
                         MessageBoxIcon.Error);
                     
@@ -188,7 +202,8 @@ namespace Ntk.Mikrotik.Tools
             this.SuspendLayout();
 
             // Form
-            this.Text = "اسکنر فرکانس میکروتیک";
+            var loc = _localizationService;
+            this.Text = loc.GetString("FormTitle", "اسکنر فرکانس میکروتیک");
             this.Size = new System.Drawing.Size(1400, 800);
             this.StartPosition = FormStartPosition.CenterScreen;
             this.BackColor = System.Drawing.Color.FromArgb(240, 240, 240);
@@ -210,7 +225,7 @@ namespace Ntk.Mikrotik.Tools
             // Status label (at top, fixed height)
             _lblStatus = new Label
             {
-                Text = "آماده",
+                Text = loc.GetString("StatusReady", "آماده"),
                 Dock = DockStyle.Top,
                 Height = 25,
                 TextAlign = System.Drawing.ContentAlignment.MiddleLeft,
@@ -236,10 +251,10 @@ namespace Ntk.Mikrotik.Tools
                 Padding = new Padding(8, 5, 8, 5)
             };
 
-            // Helper method to create styled button with icon
+            // Helper method to create styled button with icon (با سایه و حالت سه‌بعدی ظریف)
             Button CreateStyledButton(string text, string icon, Color backColor, int width = 110, int height = 38)
             {
-                return new Button
+                var btn = new Button
                 {
                     Text = $"{icon} {text}",
                     Width = width,
@@ -250,25 +265,57 @@ namespace Ntk.Mikrotik.Tools
                     Font = new System.Drawing.Font("Tahoma", 9F, System.Drawing.FontStyle.Bold),
                     Cursor = Cursors.Hand
                 };
+
+                // حاشیه و سایه ظریف
+                btn.FlatAppearance.BorderSize = 0;
+                btn.Padding = new Padding(0, 0, 0, 2); // کمی فضای پایین برای حس سایه
+
+                // رنگ‌های هاور و کلیک
+                btn.FlatAppearance.MouseOverBackColor = Color.FromArgb(
+                    Math.Min(255, backColor.R + 20),
+                    Math.Min(255, backColor.G + 20),
+                    Math.Min(255, backColor.B + 20));
+                btn.FlatAppearance.MouseDownBackColor = Color.FromArgb(
+                    Math.Max(0, backColor.R - 20),
+                    Math.Max(0, backColor.G - 20),
+                    Math.Max(0, backColor.B - 20));
+
+                // سایه ساده با رویداد Paint
+                btn.Paint += (s, e) =>
+                {
+                    var shadowColor = Color.FromArgb(60, 0, 0, 0);
+                    var shadowRect = new Rectangle(2, 2, btn.Width - 4, btn.Height - 4);
+                    using (var shadowBrush = new SolidBrush(shadowColor))
+                    {
+                        e.Graphics.FillRectangle(shadowBrush, shadowRect);
+                    }
+                    // نوار بالایی روشن برای حس عمق
+                    using (var topHighlight = new Pen(Color.FromArgb(50, Color.White), 1))
+                    {
+                        e.Graphics.DrawLine(topHighlight, 2, 2, btn.Width - 4, 2);
+                    }
+                };
+
+                return btn;
             }
 
-            _btnStart = CreateStyledButton("شروع اسکن", "▶", Color.FromArgb(46, 125, 50), 110, 38);
-            _btnStop = CreateStyledButton("توقف", "⏹", Color.FromArgb(198, 40, 40), 110, 38);
+            _btnStart = CreateStyledButton(loc.GetString("BtnStartScan", "شروع اسکن"), "▶", Color.FromArgb(46, 125, 50), 110, 38);
+            _btnStop = CreateStyledButton(loc.GetString("BtnStop", "توقف"), "⏹", Color.FromArgb(198, 40, 40), 110, 38);
             _btnStop.Enabled = false;
             _btnStop.BackColor = Color.FromArgb(150, 150, 150);
             
-            var btnConnect = CreateStyledButton("اتصال", "🔌", Color.FromArgb(25, 118, 210), 110, 38);
+            var btnConnect = CreateStyledButton(loc.GetString("BtnConnect", "اتصال"), "🔌", Color.FromArgb(25, 118, 210), 110, 38);
             btnConnect.Name = "btnConnect";
             
-            var btnDisconnect = CreateStyledButton("قطع اتصال", "🔌❌", Color.FromArgb(198, 40, 40), 120, 38);
+            var btnDisconnect = CreateStyledButton(loc.GetString("BtnDisconnect", "قطع اتصال"), "🔌❌", Color.FromArgb(198, 40, 40), 120, 38);
             btnDisconnect.Enabled = false;
             btnDisconnect.BackColor = Color.FromArgb(150, 150, 150);
             btnDisconnect.Name = "btnDisconnect";
             
-            var btnTestReconnect = CreateStyledButton("تست اتصال مجدد", "🔄", Color.FromArgb(123, 31, 162), 140, 38);
+            var btnTestReconnect = CreateStyledButton(loc.GetString("BtnTestReconnect", "تست اتصال مجدد"), "🔄", Color.FromArgb(123, 31, 162), 140, 38);
             btnTestReconnect.Name = "btnTestReconnect";
             
-            var btnStatus = CreateStyledButton("وضعیت", "📊", Color.FromArgb(0, 150, 136), 110, 38);
+            var btnStatus = CreateStyledButton(loc.GetString("BtnStatus", "وضعیت"), "📊", Color.FromArgb(0, 150, 136), 110, 38);
             btnStatus.Name = "btnStatus";
             btnStatus.Enabled = false;
             btnStatus.BackColor = Color.FromArgb(150, 150, 150);
@@ -320,25 +367,86 @@ namespace Ntk.Mikrotik.Tools
             };
 
             // Settings Tab
-            var settingsTab = new TabPage("⚙️ تنظیمات");
+            // Language selector (add to top panel)
+            var languagePanel = new FlowLayoutPanel
+            {
+                Dock = DockStyle.Right,
+                FlowDirection = FlowDirection.LeftToRight,
+                Padding = new Padding(5),
+                AutoSize = true
+            };
+            
+            var lblLanguage = new Label
+            {
+                Text = loc.GetString("Language", "زبان") + ":",
+                TextAlign = System.Drawing.ContentAlignment.MiddleRight,
+                AutoSize = true,
+                Padding = new Padding(0, 8, 5, 0)
+            };
+            
+            _cmbLanguage = new ComboBox
+            {
+                DropDownStyle = ComboBoxStyle.DropDownList,
+                Width = 120,
+                Height = 25
+            };
+            
+            foreach (var langCode in _localizationService.AvailableLanguages)
+            {
+                var langName = _localizationService.LanguageNames[langCode];
+                _cmbLanguage.Items.Add(new { Code = langCode, Name = langName });
+            }
+            
+            _cmbLanguage.DisplayMember = "Name";
+            _cmbLanguage.ValueMember = "Code";
+            _cmbLanguage.SelectedIndexChanged += (s, e) =>
+            {
+                if (_cmbLanguage.SelectedItem != null)
+                {
+                    var selectedLang = ((dynamic)_cmbLanguage.SelectedItem).Code;
+                    _localizationService.LoadLanguage(selectedLang);
+                    
+                    // Save language preference
+                    var settings = GetSettingsFromForm();
+                    settings.Language = selectedLang;
+                    _settingsService.SaveSettings(settings);
+                    
+                    // Update all texts immediately
+                    UpdateAllTexts();
+                }
+            };
+            
+            // Set current language
+            var currentLangIndex = _localizationService.AvailableLanguages.IndexOf(_localizationService.CurrentLanguage);
+            if (currentLangIndex >= 0)
+            {
+                _cmbLanguage.SelectedIndex = currentLangIndex;
+            }
+            
+            languagePanel.Controls.Add(lblLanguage);
+            languagePanel.Controls.Add(_cmbLanguage);
+            topPanel.Controls.Add(languagePanel);
+            topPanel.Controls.SetChildIndex(languagePanel, 0);
+
+            var settingsTab = new TabPage(loc.GetString("TabSettings", "⚙️ تنظیمات"));
             settingsTab.Tag = (Color.FromArgb(25, 118, 210), Color.White); // (BackColor, ForeColor)
             CreateSettingsTab(settingsTab);
             tabControl.TabPages.Add(settingsTab);
 
             // Results and Terminal Tab (combined)
-            var resultsTab = new TabPage("📊 نتایج و لاگ");
+            var resultsTab = new TabPage(loc.GetString("TabResults", "📊 نتایج و لاگ"));
             resultsTab.Tag = (Color.FromArgb(46, 125, 50), Color.White); // (BackColor, ForeColor)
             CreateResultsAndTerminalTab(resultsTab);
             tabControl.TabPages.Add(resultsTab);
 
             // Charts Tab
-            var chartsTab = new TabPage("📈 نمودارها");
+            var chartsTab = new TabPage(loc.GetString("TabCharts", "📈 نمودارها"));
             chartsTab.Tag = (Color.FromArgb(255, 152, 0), Color.White); // (BackColor, ForeColor) - Orange
             CreateChartsTab(chartsTab);
             tabControl.TabPages.Add(chartsTab);
 
             // About Tab
-            var aboutTab = new TabPage("ℹ️ درباره ما");
+            var aboutTab = new TabPage(loc.GetString("TabAbout", "ℹ️ درباره ما"));
             aboutTab.Tag = (Color.FromArgb(123, 31, 162), Color.White); // (BackColor, ForeColor)
             CreateAboutTab(aboutTab);
             tabControl.TabPages.Add(aboutTab);
@@ -366,14 +474,33 @@ namespace Ntk.Mikrotik.Tools
                         foreColor = colors.Item2;
                     }
 
-                    // Draw background
-                    var bgColor = isSelected ? backColor : Color.FromArgb(245, 245, 245);
-                    e.Graphics.FillRectangle(new System.Drawing.SolidBrush(bgColor), rect);
+                    // Shadow rect (زیر تب برای حس عمق)
+                    var shadowRect = new Rectangle(rect.X + 2, rect.Bottom - 3, rect.Width - 4, 3);
+                    using (var shadowBrush = new SolidBrush(Color.FromArgb(50, 0, 0, 0)))
+                    {
+                        e.Graphics.FillRectangle(shadowBrush, shadowRect);
+                    }
 
-                    // Draw border for selected tab
+                    // Draw background با گوشه‌های نرم‌تر
+                    var bgColor = isSelected ? backColor : Color.FromArgb(245, 245, 245);
+                    using (var bgBrush = new SolidBrush(bgColor))
+                    {
+                        var innerRect = new Rectangle(rect.X + 1, rect.Y + 1, rect.Width - 2, rect.Height - 4);
+                        e.Graphics.FillRectangle(bgBrush, innerRect);
+                    }
+
+                    // Draw border for selected tab با خط بالایی روشن
                     if (isSelected)
                     {
-                        e.Graphics.DrawRectangle(new System.Drawing.Pen(backColor, 2), rect);
+                        using (var borderPen = new Pen(backColor, 2))
+                        {
+                            var borderRect = new Rectangle(rect.X + 1, rect.Y + 1, rect.Width - 2, rect.Height - 4);
+                            e.Graphics.DrawRectangle(borderPen, borderRect);
+                        }
+                        using (var highlightPen = new Pen(Color.FromArgb(80, Color.White), 1))
+                        {
+                            e.Graphics.DrawLine(highlightPen, rect.X + 2, rect.Y + 2, rect.Right - 2, rect.Y + 2);
+                        }
                     }
 
                     // Draw text with icon - ensure proper spacing and visibility
@@ -468,9 +595,33 @@ namespace Ntk.Mikrotik.Tools
                     Font = new System.Drawing.Font("Tahoma", 9F, System.Drawing.FontStyle.Bold),
                     Cursor = Cursors.Hand
                 };
+
+                // حاشیه و سایه ظریف
                 btn.FlatAppearance.BorderSize = 0;
-                btn.MouseEnter += (s, e) => { btn.BackColor = Color.FromArgb(Math.Min(255, backColor.R + 20), Math.Min(255, backColor.G + 20), Math.Min(255, backColor.B + 20)); };
-                btn.MouseLeave += (s, e) => { btn.BackColor = backColor; };
+                btn.Padding = new Padding(0, 0, 0, 2);
+                btn.FlatAppearance.MouseOverBackColor = Color.FromArgb(
+                    Math.Min(255, backColor.R + 20),
+                    Math.Min(255, backColor.G + 20),
+                    Math.Min(255, backColor.B + 20));
+                btn.FlatAppearance.MouseDownBackColor = Color.FromArgb(
+                    Math.Max(0, backColor.R - 20),
+                    Math.Max(0, backColor.G - 20),
+                    Math.Max(0, backColor.B - 20));
+
+                btn.Paint += (s, e) =>
+                {
+                    var shadowColor = Color.FromArgb(60, 0, 0, 0);
+                    var shadowRect = new Rectangle(2, 2, btn.Width - 4, btn.Height - 4);
+                    using (var shadowBrush = new SolidBrush(shadowColor))
+                    {
+                        e.Graphics.FillRectangle(shadowBrush, shadowRect);
+                    }
+                    using (var topHighlight = new Pen(Color.FromArgb(50, Color.White), 1))
+                    {
+                        e.Graphics.DrawLine(topHighlight, 2, 2, btn.Width - 4, 2);
+                    }
+                };
+
                 return btn;
             }
             
@@ -494,109 +645,204 @@ namespace Ntk.Mikrotik.Tools
             
             panel.SetColumnSpan(buttonPanelTop, 2);
             panel.Controls.Add(buttonPanelTop, 0, row++);
+            
+            // Language selector in settings tab
+            var loc = _localizationService;
+            var languageSettingsPanel = new FlowLayoutPanel 
+            { 
+                Dock = DockStyle.Fill, 
+                FlowDirection = FlowDirection.RightToLeft, 
+                Padding = new Padding(5),
+                AutoSize = true
+            };
+            
+            var lblLanguageSettings = new Label
+            {
+                Text = loc.GetString("Language", "زبان") + ":",
+                TextAlign = System.Drawing.ContentAlignment.MiddleRight,
+                AutoSize = true,
+                Padding = new Padding(0, 8, 5, 0),
+                Font = new System.Drawing.Font("Tahoma", 9F, System.Drawing.FontStyle.Bold)
+            };
+            
+            var cmbLanguageSettings = new ComboBox
+            {
+                Name = "cmbLanguageSettings",
+                DropDownStyle = ComboBoxStyle.DropDownList,
+                Width = 150,
+                Height = 25
+            };
+            
+            foreach (var langCode in _localizationService.AvailableLanguages)
+            {
+                var langName = _localizationService.LanguageNames[langCode];
+                cmbLanguageSettings.Items.Add(new { Code = langCode, Name = langName });
+            }
+            
+            cmbLanguageSettings.DisplayMember = "Name";
+            cmbLanguageSettings.ValueMember = "Code";
+            cmbLanguageSettings.SelectedIndexChanged += (s, e) =>
+            {
+                if (cmbLanguageSettings.SelectedItem != null)
+                {
+                    var selectedLang = ((dynamic)cmbLanguageSettings.SelectedItem).Code;
+                    _localizationService.LoadLanguage(selectedLang);
+                    
+                    // Update main language selector too
+                    if (_cmbLanguage != null)
+                    {
+                        var mainLangIndex = _localizationService.AvailableLanguages.IndexOf(selectedLang);
+                        if (mainLangIndex >= 0)
+                        {
+                            _cmbLanguage.SelectedIndex = mainLangIndex;
+                        }
+                    }
+                    
+                    // Save language preference
+                    var settings = GetSettingsFromForm();
+                    settings.Language = selectedLang;
+                    _settingsService.SaveSettings(settings);
+                    
+                    // Update all texts immediately
+                    UpdateAllTexts();
+                }
+            };
+            
+            // Set current language
+            var currentLangIndexSettings = _localizationService.AvailableLanguages.IndexOf(_localizationService.CurrentLanguage);
+            if (currentLangIndexSettings >= 0)
+            {
+                cmbLanguageSettings.SelectedIndex = currentLangIndexSettings;
+            }
+            
+            languageSettingsPanel.Controls.Add(cmbLanguageSettings);
+            languageSettingsPanel.Controls.Add(lblLanguageSettings);
+            
+            panel.SetColumnSpan(languageSettingsPanel, 2);
+            panel.Controls.Add(languageSettingsPanel, 0, row++);
 
             // Router IP
-            panel.Controls.Add(new Label { Text = "آدرس IP روتر:", TextAlign = System.Drawing.ContentAlignment.MiddleRight, Dock = DockStyle.Fill }, 0, row);
+            var lblRouterIp = new Label { Name = "lblRouterIp", Text = loc.GetString("LabelRouterIp", "آدرس IP روتر:"), TextAlign = System.Drawing.ContentAlignment.MiddleRight, Dock = DockStyle.Fill };
+            panel.Controls.Add(lblRouterIp, 0, row);
             _txtRouterIp = new TextBox { Name = "txtRouterIp", Dock = DockStyle.Fill };
             panel.Controls.Add(_txtRouterIp, 1, row++);
 
             // SSH Port
-            panel.Controls.Add(new Label { Text = "پورت SSH:", TextAlign = System.Drawing.ContentAlignment.MiddleRight, Dock = DockStyle.Fill }, 0, row);
+            var lblSshPort = new Label { Name = "lblSshPort", Text = loc.GetString("LabelSshPort", "پورت SSH:"), TextAlign = System.Drawing.ContentAlignment.MiddleRight, Dock = DockStyle.Fill };
+            panel.Controls.Add(lblSshPort, 0, row);
             _txtSshPort = new NumericUpDown { Name = "txtSshPort", Minimum = 1, Maximum = 65535, Value = 22, Dock = DockStyle.Fill };
             panel.Controls.Add(_txtSshPort, 1, row++);
 
             // Username
-            panel.Controls.Add(new Label { Text = "نام کاربری:", TextAlign = System.Drawing.ContentAlignment.MiddleRight, Dock = DockStyle.Fill }, 0, row);
+            var lblUsername = new Label { Name = "lblUsername", Text = loc.GetString("LabelUsername", "نام کاربری:"), TextAlign = System.Drawing.ContentAlignment.MiddleRight, Dock = DockStyle.Fill };
+            panel.Controls.Add(lblUsername, 0, row);
             _txtUsername = new TextBox { Name = "txtUsername", Dock = DockStyle.Fill };
             panel.Controls.Add(_txtUsername, 1, row++);
 
             // Password
-            panel.Controls.Add(new Label { Text = "رمز عبور:", TextAlign = System.Drawing.ContentAlignment.MiddleRight, Dock = DockStyle.Fill }, 0, row);
+            var lblPassword = new Label { Name = "lblPassword", Text = loc.GetString("LabelPassword", "رمز عبور:"), TextAlign = System.Drawing.ContentAlignment.MiddleRight, Dock = DockStyle.Fill };
+            panel.Controls.Add(lblPassword, 0, row);
             _txtPassword = new TextBox { Name = "txtPassword", UseSystemPasswordChar = true, Dock = DockStyle.Fill };
             panel.Controls.Add(_txtPassword, 1, row++);
 
             // Start Frequency
-            panel.Controls.Add(new Label { Text = "فرکانس شروع (MHz):", TextAlign = System.Drawing.ContentAlignment.MiddleRight, Dock = DockStyle.Fill }, 0, row);
+            var lblStartFreq = new Label { Name = "lblStartFreq", Text = loc.GetString("LabelStartFrequency", "فرکانس شروع (MHz):"), TextAlign = System.Drawing.ContentAlignment.MiddleRight, Dock = DockStyle.Fill };
+            panel.Controls.Add(lblStartFreq, 0, row);
             _txtStartFreq = new NumericUpDown { Name = "txtStartFreq", Minimum = 1000, Maximum = 6000, Value = 2400, DecimalPlaces = 0, Dock = DockStyle.Fill };
             panel.Controls.Add(_txtStartFreq, 1, row++);
 
             // End Frequency
-            panel.Controls.Add(new Label { Text = "فرکانس پایان (MHz):", TextAlign = System.Drawing.ContentAlignment.MiddleRight, Dock = DockStyle.Fill }, 0, row);
+            var lblEndFreq = new Label { Name = "lblEndFreq", Text = loc.GetString("LabelEndFrequency", "فرکانس پایان (MHz):"), TextAlign = System.Drawing.ContentAlignment.MiddleRight, Dock = DockStyle.Fill };
+            panel.Controls.Add(lblEndFreq, 0, row);
             _txtEndFreq = new NumericUpDown { Name = "txtEndFreq", Minimum = 1000, Maximum = 6000, Value = 2500, DecimalPlaces = 0, Dock = DockStyle.Fill };
             panel.Controls.Add(_txtEndFreq, 1, row++);
 
             // Frequency Step
-            panel.Controls.Add(new Label { Text = "پرش فرکانس (MHz):", TextAlign = System.Drawing.ContentAlignment.MiddleRight, Dock = DockStyle.Fill }, 0, row);
+            var lblFreqStep = new Label { Name = "lblFreqStep", Text = loc.GetString("LabelFrequencyStep", "پرش فرکانس (MHz):"), TextAlign = System.Drawing.ContentAlignment.MiddleRight, Dock = DockStyle.Fill };
+            panel.Controls.Add(lblFreqStep, 0, row);
             _txtFreqStep = new NumericUpDown { Name = "txtFreqStep", Minimum = 1, Maximum = 100, Value = 5, DecimalPlaces = 0, Dock = DockStyle.Fill };
             panel.Controls.Add(_txtFreqStep, 1, row++);
 
             // Stabilization Time
-            panel.Controls.Add(new Label { Text = "زمان استیبل شدن (دقیقه):", TextAlign = System.Drawing.ContentAlignment.MiddleRight, Dock = DockStyle.Fill }, 0, row);
+            var lblStabilizationTime = new Label { Name = "lblStabilizationTime", Text = loc.GetString("LabelStabilizationTime", "زمان استیبل شدن (دقیقه):"), TextAlign = System.Drawing.ContentAlignment.MiddleRight, Dock = DockStyle.Fill };
+            panel.Controls.Add(lblStabilizationTime, 0, row);
             _txtStabilizationTime = new NumericUpDown { Name = "txtStabilizationTime", Minimum = 1, Maximum = 60, Value = 2, Dock = DockStyle.Fill };
             panel.Controls.Add(_txtStabilizationTime, 1, row++);
 
             // Interface Name
-            panel.Controls.Add(new Label { Text = "نام اینترفیس:", TextAlign = System.Drawing.ContentAlignment.MiddleRight, Dock = DockStyle.Fill }, 0, row);
+            var lblInterface = new Label { Name = "lblInterface", Text = loc.GetString("LabelInterfaceName", "نام اینترفیس:"), TextAlign = System.Drawing.ContentAlignment.MiddleRight, Dock = DockStyle.Fill };
+            panel.Controls.Add(lblInterface, 0, row);
             _txtInterface = new TextBox { Name = "txtInterface", Text = "wlan1", Dock = DockStyle.Fill };
             panel.Controls.Add(_txtInterface, 1, row++);
 
             // Ping Test IP Address
-            panel.Controls.Add(new Label { Text = "آدرس IP تست پینگ:", TextAlign = System.Drawing.ContentAlignment.MiddleRight, Dock = DockStyle.Fill }, 0, row);
+            var lblPingIp = new Label { Name = "lblPingIp", Text = loc.GetString("LabelPingTestIp", "آدرس IP تست پینگ:"), TextAlign = System.Drawing.ContentAlignment.MiddleRight, Dock = DockStyle.Fill };
+            panel.Controls.Add(lblPingIp, 0, row);
             _txtPingIp = new TextBox { Name = "txtPingIp", Text = "8.8.8.8", Dock = DockStyle.Fill };
             panel.Controls.Add(_txtPingIp, 1, row++);
 
             // Wireless Protocols (multiple, comma or newline separated)
-            panel.Controls.Add(new Label { Text = "Wireless Protocols\n(جدا شده با کاما یا خط جدید):", TextAlign = System.Drawing.ContentAlignment.MiddleRight, Dock = DockStyle.Fill }, 0, row);
+            var lblWirelessProtocols = new Label { Name = "lblWirelessProtocols", Text = loc.GetString("LabelWirelessProtocols", "Wireless Protocols\n(جدا شده با کاما یا خط جدید):"), TextAlign = System.Drawing.ContentAlignment.MiddleRight, Dock = DockStyle.Fill };
+            panel.Controls.Add(lblWirelessProtocols, 0, row);
             var txtWirelessProtocols = new TextBox { Name = "txtWirelessProtocols", Multiline = true, Height = 60, Dock = DockStyle.Fill, ScrollBars = ScrollBars.Vertical };
             panel.Controls.Add(txtWirelessProtocols, 1, row++);
 
             // Channel Widths (multiple, comma or newline separated)
-            panel.Controls.Add(new Label { Text = "Channel Widths\n(جدا شده با کاما یا خط جدید):", TextAlign = System.Drawing.ContentAlignment.MiddleRight, Dock = DockStyle.Fill }, 0, row);
+            var lblChannelWidths = new Label { Name = "lblChannelWidths", Text = loc.GetString("LabelChannelWidths", "Channel Widths\n(جدا شده با کاما یا خط جدید):"), TextAlign = System.Drawing.ContentAlignment.MiddleRight, Dock = DockStyle.Fill };
+            panel.Controls.Add(lblChannelWidths, 0, row);
             var txtChannelWidths = new TextBox { Name = "txtChannelWidths", Multiline = true, Height = 60, Dock = DockStyle.Fill, ScrollBars = ScrollBars.Vertical };
             panel.Controls.Add(txtChannelWidths, 1, row++);
 
             // Commands Section
-            var lblCommands = new Label { Text = "کامندهای RouterOS (پیشرفته):", TextAlign = System.Drawing.ContentAlignment.MiddleRight, Dock = DockStyle.Fill, Font = new System.Drawing.Font("Tahoma", 9F, System.Drawing.FontStyle.Bold) };
+            var lblCommands = new Label { Name = "lblCommands", Text = loc.GetString("LabelRouterOSCommands", "کامندهای RouterOS (پیشرفته):"), TextAlign = System.Drawing.ContentAlignment.MiddleRight, Dock = DockStyle.Fill, Font = new System.Drawing.Font("Tahoma", 9F, System.Drawing.FontStyle.Bold) };
             panel.SetColumnSpan(lblCommands, 2);
             panel.Controls.Add(lblCommands, 0, row++);
 
             // Command Validate Interface (اول باید چک شود)
-            panel.Controls.Add(new Label { Text = "کامند اعتبارسنجی اینترفیس:", TextAlign = System.Drawing.ContentAlignment.MiddleRight, Dock = DockStyle.Fill }, 0, row);
+            var lblCmdValidateInterface = new Label { Name = "lblCmdValidateInterface", Text = loc.GetString("LabelCmdValidateInterface", "کامند اعتبارسنجی اینترفیس:"), TextAlign = System.Drawing.ContentAlignment.MiddleRight, Dock = DockStyle.Fill };
+            panel.Controls.Add(lblCmdValidateInterface, 0, row);
             var txtCmdValidateInterface = new TextBox { Name = "txtCmdValidateInterface", Text = "/interface wireless print", Dock = DockStyle.Fill };
             panel.Controls.Add(txtCmdValidateInterface, 1, row++);
 
             // Command Get Frequency
-            panel.Controls.Add(new Label { Text = "کامند دریافت فرکانس:", TextAlign = System.Drawing.ContentAlignment.MiddleRight, Dock = DockStyle.Fill }, 0, row);
+            var lblCmdGetFreq = new Label { Name = "lblCmdGetFreq", Text = loc.GetString("LabelCmdGetFrequency", "کامند دریافت فرکانس:"), TextAlign = System.Drawing.ContentAlignment.MiddleRight, Dock = DockStyle.Fill };
+            panel.Controls.Add(lblCmdGetFreq, 0, row);
             var txtCmdGetFreq = new TextBox { Name = "txtCmdGetFreq", Text = "/interface wireless print where name=\"{interface}\" value-name=frequency", Dock = DockStyle.Fill };
             panel.Controls.Add(txtCmdGetFreq, 1, row++);
 
             // Command Get Interface Info
-            panel.Controls.Add(new Label { Text = "کامند دریافت اطلاعات:", TextAlign = System.Drawing.ContentAlignment.MiddleRight, Dock = DockStyle.Fill }, 0, row);
+            var lblCmdGetInfo = new Label { Name = "lblCmdGetInfo", Text = loc.GetString("LabelCmdGetInfo", "کامند دریافت اطلاعات:"), TextAlign = System.Drawing.ContentAlignment.MiddleRight, Dock = DockStyle.Fill };
+            panel.Controls.Add(lblCmdGetInfo, 0, row);
             var txtCmdGetInfo = new TextBox { Name = "txtCmdGetInfo", Text = "/interface wireless print detail where name=\"{interface}\"", Dock = DockStyle.Fill };
             panel.Controls.Add(txtCmdGetInfo, 1, row++);
 
             // Command Get Registration Table
-            panel.Controls.Add(new Label { Text = "کامند Registration Table:", TextAlign = System.Drawing.ContentAlignment.MiddleRight, Dock = DockStyle.Fill }, 0, row);
+            var lblCmdRegTable = new Label { Name = "lblCmdRegTable", Text = loc.GetString("LabelCmdRegTable", "کامند Registration Table:"), TextAlign = System.Drawing.ContentAlignment.MiddleRight, Dock = DockStyle.Fill };
+            panel.Controls.Add(lblCmdRegTable, 0, row);
             var txtCmdRegTable = new TextBox { Name = "txtCmdRegTable", Text = "/interface wireless registration-table print stat where interface=\"{interface}\"", Dock = DockStyle.Fill };
             panel.Controls.Add(txtCmdRegTable, 1, row++);
 
             // Command Monitor
-            panel.Controls.Add(new Label { Text = "کامند Monitor:", TextAlign = System.Drawing.ContentAlignment.MiddleRight, Dock = DockStyle.Fill }, 0, row);
+            var lblCmdMonitor = new Label { Name = "lblCmdMonitor", Text = loc.GetString("LabelCmdMonitor", "کامند Monitor:"), TextAlign = System.Drawing.ContentAlignment.MiddleRight, Dock = DockStyle.Fill };
+            panel.Controls.Add(lblCmdMonitor, 0, row);
             var txtCmdMonitor = new TextBox { Name = "txtCmdMonitor", Text = "/interface wireless monitor \"{interface}\" once", Dock = DockStyle.Fill };
             panel.Controls.Add(txtCmdMonitor, 1, row++);
 
             // Command Set Frequency
-            panel.Controls.Add(new Label { Text = "کامند تنظیم فرکانس:", TextAlign = System.Drawing.ContentAlignment.MiddleRight, Dock = DockStyle.Fill }, 0, row);
+            var lblCmdSetFreq = new Label { Name = "lblCmdSetFreq", Text = loc.GetString("LabelCmdSetFrequency", "کامند تنظیم فرکانس:"), TextAlign = System.Drawing.ContentAlignment.MiddleRight, Dock = DockStyle.Fill };
+            panel.Controls.Add(lblCmdSetFreq, 0, row);
             var txtCmdSetFreq = new TextBox { Name = "txtCmdSetFreq", Text = "/interface wireless set \"{interface}\" frequency={frequency}", Dock = DockStyle.Fill };
             panel.Controls.Add(txtCmdSetFreq, 1, row++);
 
             // Command Set Wireless Protocol
-            panel.Controls.Add(new Label { Text = "کامند تنظیم Wireless Protocol:", TextAlign = System.Drawing.ContentAlignment.MiddleRight, Dock = DockStyle.Fill }, 0, row);
+            var lblCmdSetProtocol = new Label { Name = "lblCmdSetProtocol", Text = loc.GetString("LabelCmdSetProtocol", "کامند تنظیم Wireless Protocol:"), TextAlign = System.Drawing.ContentAlignment.MiddleRight, Dock = DockStyle.Fill };
+            panel.Controls.Add(lblCmdSetProtocol, 0, row);
             var txtCmdSetProtocol = new TextBox { Name = "txtCmdSetProtocol", Text = "/interface wireless set \"{interface}\" wireless-protocol={protocol}", Dock = DockStyle.Fill };
             panel.Controls.Add(txtCmdSetProtocol, 1, row++);
 
             // Command Set Channel Width
-            panel.Controls.Add(new Label { Text = "کامند تنظیم Channel Width:", TextAlign = System.Drawing.ContentAlignment.MiddleRight, Dock = DockStyle.Fill }, 0, row);
+            var lblCmdSetChannelWidth = new Label { Name = "lblCmdSetChannelWidth", Text = loc.GetString("LabelCmdSetChannelWidth", "کامند تنظیم Channel Width:"), TextAlign = System.Drawing.ContentAlignment.MiddleRight, Dock = DockStyle.Fill };
+            panel.Controls.Add(lblCmdSetChannelWidth, 0, row);
             var txtCmdSetChannelWidth = new TextBox { Name = "txtCmdSetChannelWidth", Text = "/interface wireless set \"{interface}\" channel-width={channelWidth}", Dock = DockStyle.Fill };
             panel.Controls.Add(txtCmdSetChannelWidth, 1, row++);
 
@@ -606,6 +852,8 @@ namespace Ntk.Mikrotik.Tools
 
         private void CreateResultsAndTerminalTab(TabPage tab)
         {
+            var loc = _localizationService;
+            
             // Use SplitContainer to show terminal log (top) and results (bottom)
             var splitContainer = new SplitContainer
             {
@@ -620,7 +868,8 @@ namespace Ntk.Mikrotik.Tools
 
             var terminalLabel = new Label
             {
-                Text = "لاگ ترمینال:",
+                Name = "lblTerminalLog",
+                Text = loc.GetString("LabelTerminalLog", "لاگ ترمینال:"),
                 Dock = DockStyle.Top,
                 Height = 25,
                 Font = new System.Drawing.Font("Tahoma", 9F, System.Drawing.FontStyle.Bold)
@@ -646,7 +895,8 @@ namespace Ntk.Mikrotik.Tools
 
             var btnClear = new Button
             {
-                Text = "🗑 پاک کردن",
+                Name = "btnClear",
+                Text = loc.GetString("BtnClear", "🗑 پاک کردن"),
                 Width = 110,
                 Height = 28,
                 BackColor = Color.FromArgb(198, 40, 40),
@@ -670,7 +920,8 @@ namespace Ntk.Mikrotik.Tools
             
             var resultsLabel = new Label
             {
-                Text = "نتایج اسکن:",
+                Name = "lblScanResults",
+                Text = loc.GetString("LabelScanResults", "نتایج اسکن:"),
                 Dock = DockStyle.Top,
                 Height = 25,
                 Font = new System.Drawing.Font("Tahoma", 9F, System.Drawing.FontStyle.Bold)
@@ -945,7 +1196,8 @@ namespace Ntk.Mikrotik.Tools
             // Add filter label
             var filterLabel = new Label
             {
-                Text = "فیلتر:",
+                Name = "lblFilter",
+                Text = loc.GetString("LabelFilter", "فیلتر:") + ":",
                 Dock = DockStyle.Left,
                 Width = 50,
                 TextAlign = System.Drawing.ContentAlignment.MiddleRight,
@@ -1210,28 +1462,30 @@ namespace Ntk.Mikrotik.Tools
             smallChartsPanel.RowStyles.Add(new RowStyle(SizeType.Percent, 33.33F));
             smallChartsPanel.RowStyles.Add(new RowStyle(SizeType.Percent, 33.34F));
 
+            var loc = _localizationService;
+
             // نمودار 1: SNR بر اساس فرکانس
-            var chart1Panel = CreateChartPanel("SNR بر اساس فرکانس (dB)", "Frequency", "SignalToNoiseRatio");
+            var chart1Panel = CreateChartPanel(loc.GetString("ChartSNRByFrequency", "SNR بر اساس فرکانس (dB)"), "Frequency", "SignalToNoiseRatio");
             smallChartsPanel.Controls.Add(chart1Panel, 0, 0);
 
             // نمودار 2: Signal Strength بر اساس فرکانس
-            var chart2Panel = CreateChartPanel("قدرت سیگنال بر اساس فرکانس (dBm)", "Frequency", "SignalStrength");
+            var chart2Panel = CreateChartPanel(loc.GetString("ChartSignalByFrequency", "قدرت سیگنال بر اساس فرکانس (dBm)"), "Frequency", "SignalStrength");
             smallChartsPanel.Controls.Add(chart2Panel, 1, 0);
 
             // نمودار 3: CCQ بر اساس فرکانس
-            var chart3Panel = CreateChartPanel("CCQ بر اساس فرکانس (%)", "Frequency", "CCQ");
+            var chart3Panel = CreateChartPanel(loc.GetString("ChartCCQByFrequency", "CCQ بر اساس فرکانس (%)"), "Frequency", "CCQ");
             smallChartsPanel.Controls.Add(chart3Panel, 0, 1);
 
             // نمودار 4: Ping Time بر اساس فرکانس
-            var chart4Panel = CreateChartPanel("زمان Ping بر اساس فرکانس (ms)", "Frequency", "PingAverageTime");
+            var chart4Panel = CreateChartPanel(loc.GetString("ChartPingByFrequency", "زمان Ping بر اساس فرکانس (ms)"), "Frequency", "PingAverageTime");
             smallChartsPanel.Controls.Add(chart4Panel, 1, 1);
 
             // نمودار 5: مقایسه WirelessProtocol
-            var chart5Panel = CreateComparisonChartPanel("مقایسه Wireless Protocol", "WirelessProtocol", "SignalToNoiseRatio");
+            var chart5Panel = CreateComparisonChartPanel(loc.GetString("ChartCompareWirelessProtocol", "مقایسه Wireless Protocol"), "WirelessProtocol", "SignalToNoiseRatio");
             smallChartsPanel.Controls.Add(chart5Panel, 0, 2);
 
             // نمودار 6: مقایسه ChannelWidth
-            var chart6Panel = CreateComparisonChartPanel("مقایسه Channel Width", "ChannelWidth", "SignalToNoiseRatio");
+            var chart6Panel = CreateComparisonChartPanel(loc.GetString("ChartCompareChannelWidth", "مقایسه Channel Width"), "ChannelWidth", "SignalToNoiseRatio");
             smallChartsPanel.Controls.Add(chart6Panel, 1, 2);
 
             splitContainer.Panel2.Controls.Add(smallChartsPanel);
@@ -1265,6 +1519,19 @@ namespace Ntk.Mikrotik.Tools
                 BackColor = Color.FromArgb(240, 240, 240)
             };
 
+            // Label برای نمایش مقدار
+            var valueLabel = new Label
+            {
+                Text = "",
+                Dock = DockStyle.Bottom,
+                Height = 25,
+                TextAlign = ContentAlignment.MiddleLeft,
+                Font = new Font("Tahoma", 8F),
+                BackColor = Color.FromArgb(250, 250, 250),
+                ForeColor = Color.Blue,
+                Padding = new Padding(5, 0, 5, 0)
+            };
+
             var formsPlot = new ScottPlotWinForms.FormsPlot
             {
                 Dock = DockStyle.Fill
@@ -1279,26 +1546,21 @@ namespace Ntk.Mikrotik.Tools
                     var xLabel = GetPropertyDisplayName(xAxisProperty);
                     var yLabel = GetPropertyDisplayName(yAxisProperty);
                     
-                    if (_chartToolTip == null)
-                    {
-                        _chartToolTip = new ToolTip
-                        {
-                            IsBalloon = false,
-                            UseAnimation = true,
-                            UseFading = true,
-                            AutoPopDelay = 5000,
-                            InitialDelay = 100,
-                            ReshowDelay = 100
-                        };
-                    }
-                    
-                    var tooltipText = $"{xLabel}: {coordinates.X:F2}\n{yLabel}: {coordinates.Y:F2}";
-                    _chartToolTip.SetToolTip(formsPlot, tooltipText);
+                    valueLabel.Text = $"{xLabel}: {coordinates.X:F2}  |  {yLabel}: {coordinates.Y:F2}";
                 }
-                catch { }
+                catch 
+                {
+                    valueLabel.Text = "";
+                }
+            };
+
+            formsPlot.MouseLeave += (s, e) =>
+            {
+                valueLabel.Text = "";
             };
 
             panel.Controls.Add(formsPlot);
+            panel.Controls.Add(valueLabel);
             panel.Controls.Add(titleLabel);
 
             // ذخیره اطلاعات نمودار برای به‌روزرسانی بعدی
@@ -1323,9 +1585,12 @@ namespace Ntk.Mikrotik.Tools
                 BackColor = Color.White
             };
 
+            var loc = _localizationService;
+
             var titleLabel = new Label
             {
-                Text = "نمودار جامع: ترکیب Frequency + Protocol + ChannelWidth",
+                Name = "lblMultiChartTitle",
+                Text = loc.GetString("ChartMultiSeriesTitle", "نمودار جامع: ترکیب Frequency + Protocol + ChannelWidth"),
                 Dock = DockStyle.Top,
                 Height = 30,
                 TextAlign = ContentAlignment.MiddleCenter,
@@ -1368,7 +1633,7 @@ namespace Ntk.Mikrotik.Tools
             panel.Controls.Add(titleLabel);
 
             // ذخیره اطلاعات نمودار برای به‌روزرسانی بعدی
-            formsPlot.Tag = new ChartInfo { Title = "نمودار جامع" };
+            formsPlot.Tag = new ChartInfo { Title = "ChartMultiSeries" };
 
             return panel;
         }
@@ -1944,31 +2209,34 @@ namespace Ntk.Mikrotik.Tools
         }
 
         /// <summary>
-        /// دریافت نام نمایشی property
+        /// دریافت نام نمایشی property (وابسته به زبان)
         /// </summary>
         private string GetPropertyDisplayName(string propertyName)
         {
-            var displayNames = new Dictionary<string, string>
-            {
-                { "Frequency", "فرکانس (MHz)" },
-                { "SignalToNoiseRatio", "SNR (dB)" },
-                { "SignalStrength", "قدرت سیگنال (dBm)" },
-                { "CCQ", "CCQ (%)" },
-                { "PingAverageTime", "زمان Ping (ms)" },
-                { "WirelessProtocol", "پروتکل Wireless" },
-                { "ChannelWidth", "عرض کانال" }
-            };
+            var loc = _localizationService;
 
-            return displayNames.ContainsKey(propertyName) ? displayNames[propertyName] : propertyName;
+            return propertyName switch
+            {
+                "Frequency" => loc.GetString("ColumnFrequency", "فرکانس (MHz)"),
+                "SignalToNoiseRatio" => loc.GetString("ColumnSNR", "SNR (dB)"),
+                "SignalStrength" => loc.GetString("ColumnSignal", "قدرت سیگنال (dBm)"),
+                "CCQ" => loc.GetString("ColumnCCQ", "CCQ (%)"),
+                "PingAverageTime" => loc.GetString("ColumnPingAverageTime", "میانگین Ping (ms)"),
+                "WirelessProtocol" => loc.GetString("ColumnWirelessProtocol", "Wireless Protocol"),
+                "ChannelWidth" => loc.GetString("ColumnChannelWidth", "Channel Width"),
+                _ => propertyName
+            };
         }
 
         private void CreateTerminalLogTab(TabPage tab)
         {
             var panel = new Panel { Dock = DockStyle.Fill, Padding = new Padding(10) };
 
+            var loc = _localizationService;
             var label = new Label 
             { 
-                Text = "داده‌های ارسالی و دریافتی ترمینال:", 
+                Name = "lblTerminalLogDetails",
+                Text = loc.GetString("LabelTerminalLog", "داده‌های ارسالی و دریافتی ترمینال:"), 
                 Dock = DockStyle.Top, 
                 Height = 25,
                 Font = new System.Drawing.Font("Tahoma", 9F, System.Drawing.FontStyle.Bold)
@@ -1994,7 +2262,8 @@ namespace Ntk.Mikrotik.Tools
 
             var btnClear = new Button 
             { 
-                Text = "🗑 پاک کردن",
+                Name = "btnClearTerminal",
+                Text = loc.GetString("BtnClear", "🗑 پاک کردن"),
                 Size = new System.Drawing.Size(110, 30),
                 BackColor = Color.FromArgb(198, 40, 40),
                 ForeColor = Color.White,
@@ -2024,6 +2293,8 @@ namespace Ntk.Mikrotik.Tools
             tab.BackColor = Color.White;
             tab.Padding = new Padding(10);
 
+            var loc = _localizationService;
+
             var mainLayout = new TableLayoutPanel
             {
                 Dock = DockStyle.Fill,
@@ -2039,7 +2310,8 @@ namespace Ntk.Mikrotik.Tools
 
             var titleLabel = new Label
             {
-                Text = "درباره ابزار و توسعه‌دهنده",
+                Name = "lblAboutTitle",
+                Text = loc.GetString("AboutTitle", "درباره ابزار و توسعه‌دهنده"),
                 Dock = DockStyle.Top,
                 AutoSize = true,
                 Font = new System.Drawing.Font("Tahoma", 12F, System.Drawing.FontStyle.Bold),
@@ -2048,6 +2320,7 @@ namespace Ntk.Mikrotik.Tools
 
             var descriptionBox = new TextBox
             {
+                Name = "txtAboutDescription",
                 Multiline = true,
                 ReadOnly = true,
                 BorderStyle = BorderStyle.FixedSingle,
@@ -2055,10 +2328,11 @@ namespace Ntk.Mikrotik.Tools
                 Dock = DockStyle.Top,
                 Height = 160,
                 ScrollBars = ScrollBars.Vertical,
-                Text =
+                Text = loc.GetString(
+                    "AboutDescription",
                     "این برنامه برای اسکن و بهینه‌سازی فرکانس در روترهای MikroTik طراحی شده است تا بهترین کیفیت لینک Point-to-Point را پیدا کند.\r\n" +
                     "با اتصال امن SSH، ترکیب‌های مختلف فرکانس، پروتکل و Channel Width را تست می‌کند، نتایج را به‌صورت زنده نمایش می‌دهد و امکان ذخیره در فایل JSON را فراهم می‌کند.\r\n\r\n" +
-                    "تمام رابط کاربری به زبان فارسی است و شامل فیلتر، مرتب‌سازی، لاگ ترمینال و مدیریت تنظیمات می‌باشد."
+                    "تمام رابط کاربری به زبان فارسی است و شامل فیلتر، مرتب‌سازی، لاگ ترمینال و مدیریت تنظیمات می‌باشد.")
             };
 
             var infoLayout = new TableLayoutPanel
@@ -2072,11 +2346,11 @@ namespace Ntk.Mikrotik.Tools
             infoLayout.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 180));
             infoLayout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
 
-            void AddInfoRow(string title, string value)
+            void AddInfoRow(string titleKey, string valueKey)
             {
                 var titleLabelLocal = new Label
                 {
-                    Text = title,
+                    Text = loc.GetString(titleKey, titleKey),
                     TextAlign = System.Drawing.ContentAlignment.MiddleRight,
                     Dock = DockStyle.Fill,
                     AutoSize = true,
@@ -2085,7 +2359,7 @@ namespace Ntk.Mikrotik.Tools
 
                 var valueLabel = new Label
                 {
-                    Text = value,
+                    Text = loc.GetString(valueKey, valueKey),
                     TextAlign = System.Drawing.ContentAlignment.MiddleLeft,
                     Dock = DockStyle.Fill,
                     AutoSize = true,
@@ -2102,21 +2376,22 @@ namespace Ntk.Mikrotik.Tools
             var developerName = Environment.UserName;
             var projectLocation = AppDomain.CurrentDomain.BaseDirectory;
 
-            AddInfoRow("نام پروژه", "اسکنر فرکانس میکروتیک (Ntk.Mikrotik.Tools)");
-            AddInfoRow("نسخه برنامه", Application.ProductVersion);
-            AddInfoRow("پلتفرم", ".NET 8.0 - Windows Forms");
-            AddInfoRow("توسعه‌دهنده", "Alireza Karavi");
-            AddInfoRow("ایمیل‌های تماس", "info@alikaravi.com | karavi.alireza@gmail.com");
-            AddInfoRow("محل فعالیت", "Dubai, UAE");
-            AddInfoRow("شماره تماس", "(00971) 504504324");
-            AddInfoRow("مهارت‌های کلیدی", "C# (WinForms, WebForms, MVC), .NET Core, Angular, Microservices, GraphQL, SignalR, SQL Server, MongoDB, MySQL, Docker, ESXi, Mikrotik, VoIP/Asterisk, Zabbix, WordPress، هوش مصنوعی و چت‌بات");
-            AddInfoRow("تجربه", "بنیان‌گذار NTK (2005-اکنون)، مدیر پروژه در Arad (2015-اکنون)، مدیر پروژه در Arad ITC هند (2020-اکنون)، Founder Karavi Co. کانادا (2022-اکنون)");
-            AddInfoRow("تحصیلات", "Master AI & Robotics (IAU Isfahan, 2024-2025) | MBA (University of Tehran, 2022-2024) | BSc Industrial Engineering (IAU Najafabad, 1999-2002)");
-            AddInfoRow("مسیر اجرا/نصب", projectLocation);
+            AddInfoRow("AboutProjectName", "AboutProjectValue");
+            AddInfoRow("AboutVersion", "Application.ProductVersion");
+            AddInfoRow("AboutPlatform", "AboutPlatformValue");
+            AddInfoRow("AboutDeveloper", "AboutDeveloperValue");
+            AddInfoRow("AboutContactEmails", "AboutContactEmailsValue");
+            AddInfoRow("AboutLocation", "AboutLocationValue");
+            AddInfoRow("AboutPhone", "AboutPhoneValue");
+            AddInfoRow("AboutSkills", "AboutSkillsValue");
+            AddInfoRow("AboutExperience", "AboutExperienceValue");
+            AddInfoRow("AboutEducation", "AboutEducationValue");
+            AddInfoRow("AboutInstallPath", projectLocation);
 
             var footerLabel = new Label
             {
-                Text = "در صورت نیاز به پشتیبانی یا پیشنهاد، اطلاعات بالا را به‌روزرسانی کنید و با تیم توسعه در تماس باشید.",
+                Name = "lblAboutFooter",
+                Text = loc.GetString("AboutFooter", "در صورت نیاز به پشتیبانی یا پیشنهاد، اطلاعات بالا را به‌روزرسانی کنید و با تیم توسعه در تماس باشید."),
                 Dock = DockStyle.Top,
                 AutoSize = true,
                 Padding = new Padding(0, 10, 0, 0)
@@ -2132,6 +2407,20 @@ namespace Ntk.Mikrotik.Tools
 
         private ScanSettings GetSettingsFromForm()
         {
+            // زبان فعلی را از LocalizationService یا ComboBox بخوان
+            var currentLanguage = _localizationService.CurrentLanguage;
+            if (_cmbLanguage != null && _cmbLanguage.SelectedItem != null)
+            {
+                try
+                {
+                    currentLanguage = ((dynamic)_cmbLanguage.SelectedItem).Code ?? currentLanguage;
+                }
+                catch
+                {
+                    // در صورت خطا، همان مقدار قبلی را نگه دار
+                }
+            }
+
             return new ScanSettings
             {
                 RouterIpAddress = _txtRouterIp?.Text ?? "192.168.88.1",
@@ -2153,7 +2442,8 @@ namespace Ntk.Mikrotik.Tools
                 CommandGetInterfaceInfo = (this.Controls.Find("txtCmdGetInfo", true).FirstOrDefault() as TextBox)?.Text ?? "/interface wireless print detail where name=\"{interface}\"",
                 CommandGetRegistrationTable = (this.Controls.Find("txtCmdRegTable", true).FirstOrDefault() as TextBox)?.Text ?? "/interface wireless registration-table print stat where interface=\"{interface}\"",
                 CommandMonitorInterface = (this.Controls.Find("txtCmdMonitor", true).FirstOrDefault() as TextBox)?.Text ?? "/interface wireless monitor \"{interface}\" once",
-                CommandValidateInterface = (this.Controls.Find("txtCmdValidateInterface", true).FirstOrDefault() as TextBox)?.Text ?? "/interface wireless print"
+                CommandValidateInterface = (this.Controls.Find("txtCmdValidateInterface", true).FirstOrDefault() as TextBox)?.Text ?? "/interface wireless print",
+                Language = currentLanguage
             };
         }
 
@@ -2225,11 +2515,13 @@ namespace Ntk.Mikrotik.Tools
                 var settings = GetSettingsFromForm();
                 if (_settingsService.SaveSettings(settings))
                 {
-                    MessageBox.Show("تنظیمات ذخیره شد.", "موفق", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                    var loc = _localizationService;
+                    MessageBox.Show(loc.GetString("MsgSettingsSaved", "تنظیمات ذخیره شد."), loc.GetString("MsgSuccess", "موفق"), MessageBoxButtons.OK, MessageBoxIcon.Information);
                 }
                 else
                 {
-                    MessageBox.Show("خطا در ذخیره تنظیمات.", "خطا", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                    var loc = _localizationService;
+                    MessageBox.Show(loc.GetString("MsgErrorSavingSettings", "خطا در ذخیره تنظیمات."), loc.GetString("MsgError", "خطا"), MessageBoxButtons.OK, MessageBoxIcon.Error);
                 }
             }
             catch (Exception ex)
@@ -2243,9 +2535,10 @@ namespace Ntk.Mikrotik.Tools
         /// </summary>
         private void ResetToDefaults()
         {
+            var loc = _localizationService;
             var result = MessageBox.Show(
-                "آیا مطمئن هستید که می‌خواهید تمام تنظیمات را به مقادیر پیش‌فرض بازگردانید؟\nتمام مقادیر فعلی از دست خواهند رفت.",
-                "تأیید بازگشت به پیش‌فرض",
+                loc.GetString("MsgConfirmReset", "آیا مطمئن هستید که می‌خواهید تمام تنظیمات را به مقادیر پیش‌فرض بازگردانید؟"),
+                loc.GetString("MsgConfirm", "تأیید"),
                 MessageBoxButtons.YesNo,
                 MessageBoxIcon.Question);
 
@@ -2293,7 +2586,7 @@ namespace Ntk.Mikrotik.Tools
                 if (this.Controls.Find("txtCmdValidateInterface", true).FirstOrDefault() is TextBox txtCmdValidateInterface)
                     txtCmdValidateInterface.Text = defaultSettings.CommandValidateInterface;
 
-                MessageBox.Show("تنظیمات به مقادیر پیش‌فرض بازگردانده شد.", "موفق", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                MessageBox.Show(loc.GetString("MsgSettingsReset", "تنظیمات به مقادیر پیش‌فرض بازگردانده شد."), loc.GetString("MsgSuccess", "موفق"), MessageBoxButtons.OK, MessageBoxIcon.Information);
             }
             catch (Exception ex)
             {
@@ -2305,7 +2598,8 @@ namespace Ntk.Mikrotik.Tools
         {
             if (_isConnected && _sshClient != null && _sshClient.IsConnected)
             {
-                MessageBox.Show("در حال حاضر به روتر متصل هستید.", "اطلاع", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                var loc = _localizationService;
+                MessageBox.Show(loc.GetString("MsgAlreadyConnected", "در حال حاضر به روتر متصل هستید."), loc.GetString("MsgInfo", "اطلاع"), MessageBoxButtons.OK, MessageBoxIcon.Information);
                 return;
             }
 
@@ -2313,13 +2607,15 @@ namespace Ntk.Mikrotik.Tools
             
             if (string.IsNullOrWhiteSpace(settings.RouterIpAddress))
             {
-                MessageBox.Show("لطفاً آدرس IP روتر را وارد کنید.", "خطا", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                var loc = _localizationService;
+                MessageBox.Show(loc.GetString("MsgEnterRouterIp", "لطفاً آدرس IP روتر را وارد کنید."), loc.GetString("MsgError", "خطا"), MessageBoxButtons.OK, MessageBoxIcon.Warning);
                 return;
             }
 
             if (string.IsNullOrWhiteSpace(settings.Username))
             {
-                MessageBox.Show("لطفاً نام کاربری را وارد کنید.", "خطا", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                var loc = _localizationService;
+                MessageBox.Show(loc.GetString("MsgEnterUsername", "لطفاً نام کاربری را وارد کنید."), loc.GetString("MsgError", "خطا"), MessageBoxButtons.OK, MessageBoxIcon.Warning);
                 return;
             }
 
@@ -2403,7 +2699,8 @@ namespace Ntk.Mikrotik.Tools
                     await CollectAndDisplayBaseStatusAsync(settings);
                     
                     if (_lblStatus != null) _lblStatus.Text = "اتصال برقرار شد.";
-                    MessageBox.Show("اتصال به روتر با موفقیت برقرار شد و اطلاعات پایه دریافت شد.", "موفق", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                    var loc = _localizationService;
+                    MessageBox.Show(loc.GetString("MsgConnectionSuccess", "اتصال به روتر با موفقیت برقرار شد و اطلاعات پایه دریافت شد."), loc.GetString("MsgSuccess", "موفق"), MessageBoxButtons.OK, MessageBoxIcon.Information);
                 }
                 else
                 {
@@ -2413,7 +2710,8 @@ namespace Ntk.Mikrotik.Tools
                     if (btnDisconnect != null) btnDisconnect.Enabled = false;
                     if (_btnStart != null) _btnStart.Enabled = false;
                     
-                    MessageBox.Show("خطا در اتصال به روتر. لطفاً IP، پورت، نام کاربری و رمز عبور را بررسی کنید.", "خطا", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                    var loc = _localizationService;
+                    MessageBox.Show(loc.GetString("MsgConnectionError", "خطا در اتصال به روتر. لطفاً IP، پورت، نام کاربری و رمز عبور را بررسی کنید."), loc.GetString("MsgError", "خطا"), MessageBoxButtons.OK, MessageBoxIcon.Error);
                     _sshClient?.Dispose();
                     _sshClient = null;
                 }
@@ -2469,7 +2767,8 @@ namespace Ntk.Mikrotik.Tools
                 }
                 if (_lblStatus != null) _lblStatus.Text = "اتصال قطع شد.";
 
-                MessageBox.Show("اتصال به روتر قطع شد.", "اطلاع", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                var loc = _localizationService;
+                MessageBox.Show(loc.GetString("MsgDisconnected", "اتصال به روتر قطع شد."), loc.GetString("MsgInfo", "اطلاع"), MessageBoxButtons.OK, MessageBoxIcon.Information);
             }
             catch (Exception ex)
             {
@@ -2708,7 +3007,8 @@ namespace Ntk.Mikrotik.Tools
         {
             if (!_isConnected || _sshClient == null || !_sshClient.IsConnected)
             {
-                MessageBox.Show("لطفاً ابتدا به روتر متصل شوید.", "خطا", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                var loc = _localizationService;
+                MessageBox.Show(loc.GetString("MsgConnectFirst", "لطفاً ابتدا به روتر متصل شوید."), loc.GetString("MsgError", "خطا"), MessageBoxButtons.OK, MessageBoxIcon.Warning);
                 return;
             }
 
@@ -2719,7 +3019,8 @@ namespace Ntk.Mikrotik.Tools
             if (!validation.IsValid)
             {
                 var errorMessage = string.Join("\n", validation.Errors);
-                MessageBox.Show($"لطفاً خطاهای زیر را برطرف کنید:\n\n{errorMessage}", "خطا در تنظیمات", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                var loc = _localizationService;
+                MessageBox.Show(string.Format(loc.GetString("MsgSettingsErrors", "لطفاً خطاهای زیر را برطرف کنید:\n\n{0}"), errorMessage), loc.GetString("MsgSettingsErrorTitle", "خطا در تنظیمات"), MessageBoxButtons.OK, MessageBoxIcon.Warning);
                 return;
             }
 
@@ -2983,7 +3284,8 @@ namespace Ntk.Mikrotik.Tools
         {
             if (_sshClient == null || !_sshClient.IsConnected)
             {
-                MessageBox.Show("لطفاً ابتدا به روتر متصل شوید.", "خطا", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                var loc = _localizationService;
+                MessageBox.Show(loc.GetString("MsgConnectFirst", "لطفاً ابتدا به روتر متصل شوید."), loc.GetString("MsgError", "خطا"), MessageBoxButtons.OK, MessageBoxIcon.Warning);
                 return;
             }
 
@@ -3066,7 +3368,8 @@ namespace Ntk.Mikrotik.Tools
                     _lblStatus.Text = $"تست اتصال مجدد: {successCount}/{testCount} موفق ({successRate2:F1}%)";
                 }
 
-                MessageBox.Show(summary, "نتیجه تست اتصال مجدد", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                var loc = _localizationService;
+                MessageBox.Show(summary, loc.GetString("MsgReconnectTestResult", "نتیجه تست اتصال مجدد"), MessageBoxButtons.OK, MessageBoxIcon.Information);
             }
             catch (Exception ex)
             {
@@ -3094,7 +3397,8 @@ namespace Ntk.Mikrotik.Tools
                 var files = _jsonService.GetAvailableScanFiles();
                 if (files.Count == 0)
                 {
-                    MessageBox.Show("هیچ فایل نتیجه‌ای یافت نشد.", "اطلاع", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                    var loc = _localizationService;
+                    MessageBox.Show(loc.GetString("MsgNoResultFiles", "هیچ فایل نتیجه‌ای یافت نشد."), loc.GetString("MsgInfo", "اطلاع"), MessageBoxButtons.OK, MessageBoxIcon.Information);
                     return;
                 }
 
@@ -3155,11 +3459,13 @@ namespace Ntk.Mikrotik.Tools
                                 _dgvResults.Invalidate();
                             }
                             
-                            MessageBox.Show($"{results.Count} نتیجه بارگذاری شد.", "موفق", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                            var loc = _localizationService;
+                            MessageBox.Show(string.Format(loc.GetString("MsgResultsLoaded", "{0} نتیجه بارگذاری شد."), results.Count), loc.GetString("MsgSuccess", "موفق"), MessageBoxButtons.OK, MessageBoxIcon.Information);
                         }
                         else
                         {
-                            MessageBox.Show("فایل انتخاب شده معتبر نیست یا خالی است.", "خطا", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                            var loc = _localizationService;
+                            MessageBox.Show(loc.GetString("MsgInvalidFile", "فایل انتخاب شده معتبر نیست یا خالی است."), loc.GetString("MsgError", "خطا"), MessageBoxButtons.OK, MessageBoxIcon.Warning);
                         }
                     }
                 }
@@ -3225,7 +3531,8 @@ namespace Ntk.Mikrotik.Tools
         {
             if (!_isConnected || _sshClient == null || !_sshClient.IsConnected)
             {
-                MessageBox.Show("لطفاً ابتدا به روتر متصل شوید.", "خطا", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                var loc = _localizationService;
+                MessageBox.Show(loc.GetString("MsgConnectFirst", "لطفاً ابتدا به روتر متصل شوید."), loc.GetString("MsgError", "خطا"), MessageBoxButtons.OK, MessageBoxIcon.Warning);
                 return;
             }
 
@@ -3344,7 +3651,8 @@ namespace Ntk.Mikrotik.Tools
                     {
                         _lblStatus.Text = "خطا در دریافت وضعیت.";
                     }
-                    MessageBox.Show("خطا در دریافت وضعیت فعلی.", "خطا", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                    var loc = _localizationService;
+                    MessageBox.Show(loc.GetString("MsgStatusError", "خطا در دریافت وضعیت فعلی."), loc.GetString("MsgError", "خطا"), MessageBoxButtons.OK, MessageBoxIcon.Error);
                 }
             }
             catch (Exception ex)
@@ -3488,6 +3796,271 @@ namespace Ntk.Mikrotik.Tools
             {
                 // Log error but don't crash
                 System.Diagnostics.Debug.WriteLine($"Error applying filters: {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// به‌روزرسانی تمام متون فرم بر اساس زبان انتخابی
+        /// </summary>
+        private void UpdateAllTexts()
+        {
+            try
+            {
+                var loc = _localizationService;
+                
+                // Form title
+                this.Text = loc.GetString("FormTitle", "اسکنر فرکانس میکروتیک");
+                
+                // Status label
+                if (_lblStatus != null)
+                {
+                    _lblStatus.Text = loc.GetString("StatusReady", "آماده");
+                }
+                
+                // Buttons
+                if (_btnStart != null)
+                {
+                    _btnStart.Text = $"▶ {loc.GetString("BtnStartScan", "شروع اسکن")}";
+                }
+                if (_btnStop != null)
+                {
+                    _btnStop.Text = $"⏹ {loc.GetString("BtnStop", "توقف")}";
+                }
+                
+                // Tab pages
+                if (this.Controls.Count > 0)
+                {
+                    var tabControl = this.Controls.OfType<TabControl>().FirstOrDefault();
+                    if (tabControl != null)
+                    {
+                        foreach (TabPage tab in tabControl.TabPages)
+                        {
+                            if (tab.Text.Contains("⚙️"))
+                            {
+                                tab.Text = loc.GetString("TabSettings", "⚙️ تنظیمات");
+                            }
+                            else if (tab.Text.Contains("📊"))
+                            {
+                                tab.Text = loc.GetString("TabResults", "📊 نتایج و لاگ");
+                            }
+                            else if (tab.Text.Contains("📈"))
+                            {
+                                tab.Text = loc.GetString("TabCharts", "📈 نمودارها");
+                            }
+                            else if (tab.Text.Contains("ℹ️"))
+                            {
+                                tab.Text = loc.GetString("TabAbout", "ℹ️ درباره ما");
+                            }
+                        }
+                    }
+                }
+                
+                // Update all labels and buttons in settings tab
+                UpdateSettingsTabTexts();
+                
+                // Update results tab texts
+                UpdateResultsTabTexts();
+                
+                // Update about tab texts
+                UpdateAboutTabTexts();
+                
+                // Update DataGridView column headers
+                UpdateDataGridViewHeaders();
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"Error updating texts: {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// به‌روزرسانی متون تب تنظیمات
+        /// </summary>
+        private void UpdateSettingsTabTexts()
+        {
+            var loc = _localizationService;
+            
+            // Update buttons
+            var btnSave = this.Controls.Find("btnSave", true).FirstOrDefault() as Button;
+            if (btnSave != null)
+            {
+                btnSave.Text = $"💾 {loc.GetString("BtnSaveSettings", "ذخیره تنظیمات")}";
+            }
+            
+            var btnLoadResults = this.Controls.Find("btnLoadResults", true).FirstOrDefault() as Button;
+            if (btnLoadResults != null)
+            {
+                btnLoadResults.Text = $"📂 {loc.GetString("BtnLoadResults", "بارگذاری نتایج قبلی")}";
+            }
+            
+            var btnResetDefaults = this.Controls.Find("btnResetDefaults", true).FirstOrDefault() as Button;
+            if (btnResetDefaults != null)
+            {
+                btnResetDefaults.Text = $"🔄 {loc.GetString("BtnResetDefaults", "بازگشت به پیش‌فرض")}";
+            }
+            
+            // Update labels in settings tab
+            var labelMap = new Dictionary<string, string>
+            {
+                { "lblRouterIp", "LabelRouterIp" },
+                { "lblSshPort", "LabelSshPort" },
+                { "lblUsername", "LabelUsername" },
+                { "lblPassword", "LabelPassword" },
+                { "lblStartFreq", "LabelStartFrequency" },
+                { "lblEndFreq", "LabelEndFrequency" },
+                { "lblFreqStep", "LabelFrequencyStep" },
+                { "lblStabilizationTime", "LabelStabilizationTime" },
+                { "lblInterface", "LabelInterfaceName" },
+                { "lblPingIp", "LabelPingTestIp" },
+                { "lblWirelessProtocols", "LabelWirelessProtocols" },
+                { "lblChannelWidths", "LabelChannelWidths" },
+                { "lblCommands", "LabelRouterOSCommands" },
+                { "lblCmdValidateInterface", "LabelCmdValidateInterface" },
+                { "lblCmdGetFreq", "LabelCmdGetFrequency" },
+                { "lblCmdGetInfo", "LabelCmdGetInfo" },
+                { "lblCmdRegTable", "LabelCmdRegTable" },
+                { "lblCmdMonitor", "LabelCmdMonitor" },
+                { "lblCmdSetFreq", "LabelCmdSetFrequency" },
+                { "lblCmdSetProtocol", "LabelCmdSetProtocol" },
+                { "lblCmdSetChannelWidth", "LabelCmdSetChannelWidth" }
+            };
+            
+            foreach (var kvp in labelMap)
+            {
+                var label = this.Controls.Find(kvp.Key, true).FirstOrDefault() as Label;
+                if (label != null)
+                {
+                    label.Text = loc.GetString(kvp.Value, label.Text);
+                }
+            }
+        }
+
+        /// <summary>
+        /// به‌روزرسانی متون تب نتایج
+        /// </summary>
+        private void UpdateResultsTabTexts()
+        {
+            var loc = _localizationService;
+            
+            // Update terminal log label
+            var lblTerminalLog = this.Controls.Find("lblTerminalLog", true).FirstOrDefault() as Label;
+            if (lblTerminalLog != null)
+            {
+                lblTerminalLog.Text = loc.GetString("LabelTerminalLog", "لاگ ترمینال:");
+            }
+            
+            // Update clear button
+            var btnClear = this.Controls.Find("btnClear", true).FirstOrDefault() as Button;
+            if (btnClear != null)
+            {
+                btnClear.Text = loc.GetString("BtnClear", "🗑 پاک کردن");
+            }
+            
+            // Update scan results label
+            var lblScanResults = this.Controls.Find("lblScanResults", true).FirstOrDefault() as Label;
+            if (lblScanResults != null)
+            {
+                lblScanResults.Text = loc.GetString("LabelScanResults", "نتایج اسکن:");
+            }
+            
+            // Update filter label
+            var lblFilter = this.Controls.Find("lblFilter", true).FirstOrDefault() as Label;
+            if (lblFilter != null)
+            {
+                lblFilter.Text = loc.GetString("LabelFilter", "فیلتر:") + ":";
+            }
+        }
+
+        /// <summary>
+        /// به‌روزرسانی متون تب درباره
+        /// </summary>
+        private void UpdateAboutTabTexts()
+        {
+            var loc = _localizationService;
+
+            // پیدا کردن تب درباره
+            var tabControl = this.Controls.OfType<TabControl>().FirstOrDefault();
+            if (tabControl == null) return;
+
+            var aboutTab = tabControl.TabPages
+                .Cast<TabPage>()
+                .FirstOrDefault(t => t.Text.Contains("ℹ️") || t.Text.Contains("About") || t.Text.Contains("درباره"));
+
+            if (aboutTab == null) return;
+
+            // به‌روزرسانی عنوان
+            var lblTitle = aboutTab.Controls.Find("lblAboutTitle", true).FirstOrDefault() as Label;
+            if (lblTitle != null)
+            {
+                lblTitle.Text = loc.GetString("AboutTitle", "درباره ابزار و توسعه‌دهنده");
+            }
+
+            // به‌روزرسانی توضیحات
+            var txtDescription = aboutTab.Controls.Find("txtAboutDescription", true).FirstOrDefault() as TextBox;
+            if (txtDescription != null)
+            {
+                txtDescription.Text = loc.GetString(
+                    "AboutDescription",
+                    "این برنامه برای اسکن و بهینه‌سازی فرکانس در روترهای MikroTik طراحی شده است تا بهترین کیفیت لینک Point-to-Point را پیدا کند.\r\n" +
+                    "با اتصال امن SSH، ترکیب‌های مختلف فرکانس، پروتکل و Channel Width را تست می‌کند، نتایج را به‌صورت زنده نمایش می‌دهد و امکان ذخیره در فایل JSON را فراهم می‌کند.\r\n\r\n" +
+                    "تمام رابط کاربری به زبان فارسی است و شامل فیلتر، مرتب‌سازی، لاگ ترمینال و مدیریت تنظیمات می‌باشد.");
+            }
+
+            // به‌روزرسانی ردیف‌های اطلاعاتی (بر اساس عنوان)
+            var labelMap = new Dictionary<string, string>
+            {
+                { "نام پروژه", "AboutProjectName" },
+                { "نسخه برنامه", "AboutVersion" },
+                { "پلتفرم", "AboutPlatform" },
+                { "توسعه‌دهنده", "AboutDeveloper" },
+                { "ایمیل‌های تماس", "AboutContactEmails" },
+                { "محل فعالیت", "AboutLocation" },
+                { "شماره تماس", "AboutPhone" },
+                { "مهارت‌های کلیدی", "AboutSkills" },
+                { "تجربه", "AboutExperience" },
+                { "تحصیلات", "AboutEducation" },
+                { "مسیر اجرا/نصب", "AboutInstallPath" }
+            };
+
+            foreach (var kvp in labelMap)
+            {
+                var labels = aboutTab.Controls.OfType<TableLayoutPanel>()
+                    .SelectMany(p => p.Controls.Cast<Control>())
+                    .OfType<Label>()
+                    .Where(l => l.Text == kvp.Key)
+                    .ToList();
+
+                foreach (var lbl in labels)
+                {
+                    lbl.Text = loc.GetString(kvp.Value, kvp.Key);
+                }
+            }
+
+            // به‌روزرسانی متن پاورقی
+            var lblFooter = aboutTab.Controls.Find("lblAboutFooter", true).FirstOrDefault() as Label;
+            if (lblFooter != null)
+            {
+                lblFooter.Text = loc.GetString("AboutFooter", "در صورت نیاز به پشتیبانی یا پیشنهاد، اطلاعات بالا را به‌روزرسانی کنید و با تیم توسعه در تماس باشید.");
+            }
+        }
+
+        /// <summary>
+        /// به‌روزرسانی هدرهای DataGridView
+        /// </summary>
+        private void UpdateDataGridViewHeaders()
+        {
+            var loc = _localizationService;
+            if (_dgvResults != null)
+            {
+                foreach (DataGridViewColumn col in _dgvResults.Columns)
+                {
+                    var key = $"Column{col.Name}";
+                    var translated = loc.GetString(key, col.HeaderText);
+                    if (translated != key)
+                    {
+                        col.HeaderText = translated;
+                    }
+                }
             }
         }
     }

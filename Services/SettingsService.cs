@@ -123,7 +123,8 @@ namespace Ntk.Mikrotik.Tools.Services
                 CommandGetInterfaceInfo = "/interface wireless print detail where name=\"{interface}\"",
                 CommandGetRegistrationTable = "/interface wireless registration-table print stat where interface=\"{interface}\"",
                 CommandMonitorInterface = "/interface wireless monitor \"{interface}\" once",
-                CommandValidateInterface = "/interface wireless print"
+                CommandValidateInterface = "/interface wireless print",
+                Language = "fa" // Default: Persian
             };
         }
     }

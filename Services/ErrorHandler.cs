@@ -21,25 +21,26 @@ namespace Ntk.Mikrotik.Tools.Services
         {
             try
             {
-                var errorMessage = $"خطا در {context}:\n\n{ex.Message}";
+                var loc = LocalizationService.Instance;
+                var errorMessage = string.Format(loc.GetString("ErrorInContext", "خطا در {0}"), context) + $":\n\n{ex.Message}";
                 
                 if (ex.InnerException != null)
                 {
-                    errorMessage += $"\n\nخطای داخلی: {ex.InnerException.Message}";
+                    errorMessage += $"\n\n{loc.GetString("ErrorInner", "خطای داخلی")}: {ex.InnerException.Message}";
                 }
                 
-                errorMessage += $"\n\nنوع خطا: {ex.GetType().Name}";
+                errorMessage += $"\n\n{loc.GetString("ErrorType", "نوع خطا")}: {ex.GetType().Name}";
                 
                 if (!string.IsNullOrEmpty(ex.StackTrace))
                 {
-                    errorMessage += $"\n\nجزئیات فنی:\n{ex.StackTrace.Substring(0, Math.Min(500, ex.StackTrace.Length))}...";
+                    errorMessage += $"\n\n{loc.GetString("ErrorTechnicalDetails", "جزئیات فنی")}:\n{ex.StackTrace.Substring(0, Math.Min(500, ex.StackTrace.Length))}...";
                 }
                 
-                errorMessage += "\n\n⚠️ اگر مشکل ادامه داشت، لطفاً این پیام را به پشتیبانی اطلاع دهید.";
+                errorMessage += $"\n\n{loc.GetString("ErrorContactSupport", "⚠️ اگر مشکل ادامه داشت، لطفاً این پیام را به پشتیبانی اطلاع دهید.")}";
                 
                 MessageBox.Show(
                     errorMessage,
-                    "خطا",
+                    loc.GetString("MsgError", "خطا"),
                     MessageBoxButtons.OK,
                     MessageBoxIcon.Error);
                 
@@ -117,9 +118,10 @@ namespace Ntk.Mikrotik.Tools.Services
                 // اگر نمایش خطا هم خطا داد، حداقل یک پیام ساده نمایش بده
                 try
                 {
+                    var loc = LocalizationService.Instance;
                     MessageBox.Show(
-                        $"خطای غیرمنتظره رخ داد. لطفاً به پشتیبانی اطلاع دهید.\n\n{ex.Message}",
-                        "خطا",
+                        $"{loc.GetString("ErrorUnexpected", "خطای غیرمنتظره رخ داد. لطفاً به پشتیبانی اطلاع دهید.")}\n\n{ex.Message}",
+                        loc.GetString("MsgError", "خطا"),
                         MessageBoxButtons.OK,
                         MessageBoxIcon.Error);
                 }

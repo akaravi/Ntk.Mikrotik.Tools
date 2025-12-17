@@ -28,6 +28,9 @@ namespace Ntk.Mikrotik.Tools.Models
         
         // Ping Test Settings
         public string PingTestIpAddress { get; set; } = "8.8.8.8";
+        
+        // Language Settings
+        public string Language { get; set; } = "fa"; // Default: Persian
     }
 }
 

@@ -15,6 +15,13 @@
     </None>
   </ItemGroup>
 
+  <!-- Ensure language resource files are copied next to the executable -->
+  <ItemGroup>
+    <None Include="Resources\Languages\*.json">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+  </ItemGroup>
+
   <ItemGroup>
     <PackageReference Include="Newtonsoft.Json" Version="13.0.3" />
     <PackageReference Include="ScottPlot.WinForms" Version="5.0.0" />

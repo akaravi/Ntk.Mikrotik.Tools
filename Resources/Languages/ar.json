@@ -1,0 +1,145 @@
+{
+  "FormTitle": "ماسح تردد MikroTik",
+  "StatusReady": "جاهز",
+  "BtnStartScan": "بدء المسح",
+  "BtnStop": "إيقاف",
+  "BtnConnect": "اتصال",
+  "BtnDisconnect": "قطع الاتصال",
+  "BtnTestReconnect": "اختبار إعادة الاتصال",
+  "BtnStatus": "الحالة",
+  "TabSettings": "⚙️ الإعدادات",
+  "TabResults": "📊 النتائج والسجل",
+  "TabCharts": "📈 المخططات",
+  "TabAbout": "ℹ️ حول",
+  "BtnSaveSettings": "حفظ الإعدادات",
+  "BtnLoadResults": "تحميل النتائج السابقة",
+  "BtnResetDefaults": "إعادة التعيين إلى الافتراضي",
+  "LabelRouterIp": "عنوان IP الموجه:",
+  "LabelSshPort": "منفذ SSH:",
+  "LabelUsername": "اسم المستخدم:",
+  "LabelPassword": "كلمة المرور:",
+  "LabelStartFrequency": "تردد البداية (MHz):",
+  "LabelEndFrequency": "تردد النهاية (MHz):",
+  "LabelFrequencyStep": "خطوة التردد (MHz):",
+  "LabelStabilizationTime": "وقت الاستقرار (دقيقة):",
+  "LabelInterfaceName": "اسم الواجهة:",
+  "LabelPingTestIp": "عنوان IP لاختبار Ping:",
+  "LabelWirelessProtocols": "بروتوكولات اللاسلكي\n(مفصولة بفاصلة أو سطر جديد):",
+  "LabelChannelWidths": "عرض القناة\n(مفصولة بفاصلة أو سطر جديد):",
+  "LabelRouterOSCommands": "أوامر RouterOS (متقدم):",
+  "LabelCmdValidateInterface": "أمر التحقق من الواجهة:",
+  "LabelCmdGetFrequency": "أمر الحصول على التردد:",
+  "LabelCmdGetInfo": "أمر الحصول على المعلومات:",
+  "LabelCmdRegTable": "أمر جدول التسجيل:",
+  "LabelCmdMonitor": "أمر المراقبة:",
+  "LabelCmdSetFrequency": "أمر تعيين التردد:",
+  "LabelCmdSetProtocol": "أمر تعيين بروتوكول اللاسلكي:",
+  "LabelCmdSetChannelWidth": "أمر تعيين عرض القناة:",
+  "LabelTerminalLog": "سجل الطرفية:",
+  "BtnClear": "🗑 مسح",
+  "LabelScanResults": "نتائج المسح:",
+  "LabelFilter": "تصفية:",
+  "ColumnFrequency": "التردد (MHz)",
+  "ColumnSNR": "SNR (dB)",
+  "ColumnSignal": "قوة الإشارة (dBm)",
+  "ColumnNoise": "الضوضاء (dBm)",
+  "ColumnPower": "قوة الهوائي (dBm)",
+  "ColumnDownload": "سرعة التنزيل (Mbps)",
+  "ColumnUpload": "سرعة الرفع (Mbps)",
+  "ColumnCCQ": "CCQ (%)",
+  "ColumnTxRate": "معدل الإرسال (Mbps)",
+  "ColumnRxRate": "معدل الاستقبال (Mbps)",
+  "ColumnBand": "النطاق",
+  "ColumnChannelWidth": "عرض القناة",
+  "ColumnWirelessProtocol": "بروتوكول اللاسلكي",
+  "ColumnRemoteSignal": "إشارة بعيدة (dBm)",
+  "ColumnRemoteSNR": "SNR بعيد (dB)",
+  "ColumnRemoteCCQ": "CCQ بعيد (%)",
+  "ColumnRemoteTxRate": "معدل الإرسال البعيد (Mbps)",
+  "ColumnRemoteRxRate": "معدل الاستقبال البعيد (Mbps)",
+  "ColumnRemoteIdentity": "الهوية البعيدة",
+  "ColumnRemoteRadioName": "اسم الراديو البعيد",
+  "ColumnRemoteTxCCQ": "Tx CCQ بعيد (%)",
+  "ColumnRemoteRxCCQ": "Rx CCQ بعيد (%)",
+  "ColumnRemotePThroughput": "الإنتاجية البعيدة P-Throughput",
+  "ColumnRemoteSignalCh0": "إشارة Ch0 بعيدة (dBm)",
+  "ColumnRemoteSignalCh1": "إشارة Ch1 بعيدة (dBm)",
+  "ColumnPingSuccess": "نجاح Ping",
+  "ColumnPingTime": "وقت Ping (ms)",
+  "ColumnPingMinTime": "الحد الأدنى لـ Ping (ms)",
+  "ColumnPingMaxTime": "الحد الأقصى لـ Ping (ms)",
+  "ColumnPingAverageTime": "متوسط Ping (ms)",
+  "ColumnPingPacketsSent": "الحزم المرسلة",
+  "ColumnPingPacketsReceived": "الحزم المستلمة",
+  "ColumnPingPacketsLost": "الحزم المفقودة",
+  "ColumnPingLossPercentage": "نسبة الفقد (%)",
+  "ColumnPingTestIpAddress": "عنوان IP لاختبار Ping",
+  "ColumnStatus": "الحالة",
+  "ColumnScanTime": "وقت المسح",
+  "Yes": "نعم",
+  "No": "لا",
+  "StatusBase": "base",
+  "StatusSuccess": "نجح",
+  "StatusError": "خطأ",
+  "MsgSettingsSaved": "تم حفظ الإعدادات.",
+  "MsgSuccess": "نجح",
+  "MsgError": "خطأ",
+  "MsgErrorSavingSettings": "خطأ في حفظ الإعدادات.",
+  "MsgConfirmReset": "هل أنت متأكد أنك تريد إعادة تعيين جميع الإعدادات إلى القيم الافتراضية؟",
+  "MsgConfirm": "تأكيد",
+  "MsgSettingsReset": "تم إعادة تعيين الإعدادات إلى القيم الافتراضية.",
+  "MsgAlreadyConnected": "أنت متصل بالموجه حاليًا.",
+  "MsgInfo": "معلومات",
+  "MsgEnterRouterIp": "الرجاء إدخال عنوان IP الموجه.",
+  "MsgEnterUsername": "الرجاء إدخال اسم المستخدم.",
+  "MsgConnectionSuccess": "تم إنشاء الاتصال بالموجه بنجاح وتم الحصول على المعلومات الأساسية.",
+  "MsgConnectionError": "خطأ في الاتصال بالموجه. يرجى التحقق من IP والمنفذ واسم المستخدم وكلمة المرور.",
+  "MsgDisconnected": "تم قطع الاتصال بالموجه.",
+  "MsgReconnectTestResult": "نتيجة اختبار إعادة الاتصال",
+  "MsgNoResultFiles": "لم يتم العثور على ملفات نتائج.",
+  "MsgResultsLoaded": "تم تحميل {0} نتيجة.",
+  "MsgInvalidFile": "الملف المحدد غير صالح أو فارغ.",
+  "MsgConnectFirst": "الرجاء الاتصال بالموجه أولاً.",
+  "MsgSettingsErrors": "الرجاء إصلاح الأخطاء التالية:\n\n{0}",
+  "MsgSettingsErrorTitle": "خطأ في الإعدادات",
+  "MsgStatusError": "خطأ في الحصول على الحالة الحالية.",
+  "ErrorStartup": "خطأ في بدء التشغيل",
+  "ErrorInContext": "خطأ في {0}",
+  "ErrorInner": "خطأ داخلي",
+  "ErrorType": "نوع الخطأ",
+  "ErrorTechnicalDetails": "التفاصيل التقنية",
+  "ErrorContactSupport": "⚠️ إذا استمرت المشكلة، يرجى إبلاغ الدعم بهذه الرسالة.",
+  "ErrorUnexpected": "حدث خطأ غير متوقع. يرجى إبلاغ الدعم.",
+  "ErrorUnexpectedInApp": "خطأ غير متوقع في التطبيق",
+  "ErrorUnexpectedInDomain": "خطأ غير متوقع في نطاق التطبيق",
+  "ErrorApp": "خطأ التطبيق",
+  "AboutTitle": "حول الأداة والمطور",
+  "AboutDescription": "تم تصميم هذا البرنامج لمسح وتحسين التردد في أجهزة توجيه MikroTik للعثور على أفضل جودة رابط Point-to-Point.\r\nيقوم باختبار مجموعات مختلفة من التردد والبروتوكول وعرض القناة من خلال اتصال SSH آمن، ويعرض النتائج في الوقت الفعلي ويوفر إمكانية الحفظ في ملف JSON.\r\n\r\nواجهة المستخدم بالكامل باللغة العربية وتشمل التصفية والفرز وسجل الطرفية وإدارة الإعدادات.",
+  "AboutProjectName": "اسم المشروع",
+  "AboutProjectValue": "ماسح تردد MikroTik (Ntk.Mikrotik.Tools)",
+  "AboutVersion": "إصدار التطبيق",
+  "AboutPlatform": "المنصة",
+  "AboutPlatformValue": ".NET 8.0 - Windows Forms",
+  "AboutDeveloper": "المطور",
+  "AboutDeveloperValue": "Alireza Karavi",
+  "AboutContactEmails": "رسائل البريد الإلكتروني للاتصال",
+  "AboutContactEmailsValue": "info@alikaravi.com | karavi.alireza@gmail.com",
+  "AboutLocation": "موقع النشاط",
+  "AboutLocationValue": "Dubai, UAE",
+  "AboutPhone": "رقم الهاتف",
+  "AboutPhoneValue": "(00971) 504504324",
+  "AboutSkills": "المهارات الرئيسية",
+  "AboutSkillsValue": "C# (WinForms, WebForms, MVC), .NET Core, Angular, Microservices, GraphQL, SignalR, SQL Server, MongoDB, MySQL, Docker, ESXi, Mikrotik, VoIP/Asterisk, Zabbix, WordPress، الذكاء الاصطناعي والروبوتات",
+  "AboutExperience": "الخبرة",
+  "AboutExperienceValue": "مؤسس NTK (2005-الآن)، مدير المشروع في Arad (2015-الآن)، مدير المشروع في Arad ITC الهند (2020-الآن)، مؤسس Karavi Co. كندا (2022-الآن)",
+  "AboutEducation": "التعليم",
+  "AboutEducationValue": "ماجستير الذكاء الاصطناعي والروبوتات (IAU Isfahan, 2024-2025) | ماجستير إدارة الأعمال (جامعة طهران، 2022-2024) | بكالوريوس الهندسة الصناعية (IAU Najafabad, 1999-2002)",
+  "AboutInstallPath": "مسار التنفيذ/التثبيت",
+  "AboutFooter": "إذا كنت بحاجة إلى الدعم أو الاقتراحات، يرجى تحديث المعلومات أعلاه والاتصال بفريق التطوير.",
+  "Language": "اللغة",
+  "LanguagePersian": "فارسی",
+  "LanguageArabic": "العربية",
+  "LanguageEnglish": "English",
+  "LanguageGerman": "Deutsch"
+}
+
