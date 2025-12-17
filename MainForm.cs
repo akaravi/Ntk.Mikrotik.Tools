@@ -11,6 +11,7 @@ using Ntk.Mikrotik.Tools.Services;
 using MethodInvoker = System.Windows.Forms.MethodInvoker;
 using System.Drawing;
 using SettingsValidationResult = Ntk.Mikrotik.Tools.Services.ValidationResult;
+using ScottPlotWinForms = ScottPlot.WinForms;
 
 namespace Ntk.Mikrotik.Tools
 {
@@ -330,6 +331,12 @@ namespace Ntk.Mikrotik.Tools
             CreateResultsAndTerminalTab(resultsTab);
             tabControl.TabPages.Add(resultsTab);
 
+            // Charts Tab
+            var chartsTab = new TabPage("📈 نمودارها");
+            chartsTab.Tag = (Color.FromArgb(255, 152, 0), Color.White); // (BackColor, ForeColor) - Orange
+            CreateChartsTab(chartsTab);
+            tabControl.TabPages.Add(chartsTab);
+
             // About Tab
             var aboutTab = new TabPage("ℹ️ درباره ما");
             aboutTab.Tag = (Color.FromArgb(123, 31, 162), Color.White); // (BackColor, ForeColor)
@@ -603,7 +610,7 @@ namespace Ntk.Mikrotik.Tools
             var splitContainer = new SplitContainer
             {
                 Dock = DockStyle.Fill,
-                Orientation = Orientation.Horizontal,
+                Orientation = System.Windows.Forms.Orientation.Horizontal,
                 SplitterDistance = 300, // Terminal log takes 300px, results take the rest
                 SplitterWidth = 5
             };
@@ -1150,6 +1157,809 @@ namespace Ntk.Mikrotik.Tools
             splitContainer.Panel2.Controls.Add(resultsPanel);
 
             tab.Controls.Add(splitContainer);
+        }
+
+        /// <summary>
+        /// کلاس برای نگهداری اطلاعات نمودار
+        /// </summary>
+        private class ChartInfo
+        {
+            public string? XProperty { get; set; }
+            public string? YProperty { get; set; }
+            public string? GroupByProperty { get; set; }
+            public string? ValueProperty { get; set; }
+            public string? Title { get; set; }
+        }
+
+        /// <summary>
+        /// ایجاد تب نمودارها برای نمایش نمودارهای مقایسه‌ای نتایج اسکن
+        /// این تب شامل نمودارهای مختلف برای تصمیم‌گیری بهترین فرکانس، کانال و پروتکل است
+        /// </summary>
+        /// <param name="tab">تب برای اضافه کردن نمودارها</param>
+        private void CreateChartsTab(TabPage tab)
+        {
+            // استفاده از SplitContainer برای تقسیم نمودار بزرگ (بالا) و نمودارهای کوچک (پایین)
+            var splitContainer = new SplitContainer
+            {
+                Dock = DockStyle.Fill,
+                Orientation = System.Windows.Forms.Orientation.Vertical,
+                SplitterDistance = 400, // نمودار بزرگ 400px ارتفاع دارد
+                SplitterWidth = 5
+            };
+
+            // نمودار بزرگ در Panel1 (چپ)
+            var largeChartPanel = CreateMultiSeriesChartPanel();
+            splitContainer.Panel1.Controls.Add(largeChartPanel);
+
+            // نمودارهای کوچک در Panel2 (راست)
+            var smallChartsPanel = new TableLayoutPanel
+            {
+                Dock = DockStyle.Fill,
+                ColumnCount = 2,
+                RowCount = 3,
+                Padding = new Padding(10),
+                BackColor = Color.White
+            };
+
+            // تنظیم اندازه ستون‌ها (50% - 50%)
+            smallChartsPanel.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50F));
+            smallChartsPanel.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50F));
+
+            // تنظیم اندازه ردیف‌ها
+            smallChartsPanel.RowStyles.Add(new RowStyle(SizeType.Percent, 33.33F));
+            smallChartsPanel.RowStyles.Add(new RowStyle(SizeType.Percent, 33.33F));
+            smallChartsPanel.RowStyles.Add(new RowStyle(SizeType.Percent, 33.34F));
+
+            // نمودار 1: SNR بر اساس فرکانس
+            var chart1Panel = CreateChartPanel("SNR بر اساس فرکانس (dB)", "Frequency", "SignalToNoiseRatio");
+            smallChartsPanel.Controls.Add(chart1Panel, 0, 0);
+
+            // نمودار 2: Signal Strength بر اساس فرکانس
+            var chart2Panel = CreateChartPanel("قدرت سیگنال بر اساس فرکانس (dBm)", "Frequency", "SignalStrength");
+            smallChartsPanel.Controls.Add(chart2Panel, 1, 0);
+
+            // نمودار 3: CCQ بر اساس فرکانس
+            var chart3Panel = CreateChartPanel("CCQ بر اساس فرکانس (%)", "Frequency", "CCQ");
+            smallChartsPanel.Controls.Add(chart3Panel, 0, 1);
+
+            // نمودار 4: Ping Time بر اساس فرکانس
+            var chart4Panel = CreateChartPanel("زمان Ping بر اساس فرکانس (ms)", "Frequency", "PingAverageTime");
+            smallChartsPanel.Controls.Add(chart4Panel, 1, 1);
+
+            // نمودار 5: مقایسه WirelessProtocol
+            var chart5Panel = CreateComparisonChartPanel("مقایسه Wireless Protocol", "WirelessProtocol", "SignalToNoiseRatio");
+            smallChartsPanel.Controls.Add(chart5Panel, 0, 2);
+
+            // نمودار 6: مقایسه ChannelWidth
+            var chart6Panel = CreateComparisonChartPanel("مقایسه Channel Width", "ChannelWidth", "SignalToNoiseRatio");
+            smallChartsPanel.Controls.Add(chart6Panel, 1, 2);
+
+            splitContainer.Panel2.Controls.Add(smallChartsPanel);
+            tab.Controls.Add(splitContainer);
+        }
+
+        /// <summary>
+        /// ایجاد پنل نمودار برای نمایش یک نمودار خطی
+        /// </summary>
+        /// <param name="title">عنوان نمودار</param>
+        /// <param name="xAxisProperty">نام property برای محور X</param>
+        /// <param name="yAxisProperty">نام property برای محور Y</param>
+        /// <returns>پنل حاوی نمودار</returns>
+        private Panel CreateChartPanel(string title, string xAxisProperty, string yAxisProperty)
+        {
+            var panel = new Panel
+            {
+                Dock = DockStyle.Fill,
+                Padding = new Padding(5),
+                BorderStyle = BorderStyle.FixedSingle,
+                BackColor = Color.White
+            };
+
+            var titleLabel = new Label
+            {
+                Text = title,
+                Dock = DockStyle.Top,
+                Height = 30,
+                TextAlign = ContentAlignment.MiddleCenter,
+                Font = new Font("Tahoma", 9F, FontStyle.Bold),
+                BackColor = Color.FromArgb(240, 240, 240)
+            };
+
+            var formsPlot = new ScottPlotWinForms.FormsPlot
+            {
+                Dock = DockStyle.Fill
+            };
+
+            // فعال‌سازی نمایش مختصات هنگام حرکت موس
+            formsPlot.MouseMove += (s, e) => 
+            {
+                try
+                {
+                    var coordinates = formsPlot.Plot.GetCoordinates(e.X, e.Y);
+                    var xLabel = GetPropertyDisplayName(xAxisProperty);
+                    var yLabel = GetPropertyDisplayName(yAxisProperty);
+                    
+                    if (_chartToolTip == null)
+                    {
+                        _chartToolTip = new ToolTip
+                        {
+                            IsBalloon = false,
+                            UseAnimation = true,
+                            UseFading = true,
+                            AutoPopDelay = 5000,
+                            InitialDelay = 100,
+                            ReshowDelay = 100
+                        };
+                    }
+                    
+                    var tooltipText = $"{xLabel}: {coordinates.X:F2}\n{yLabel}: {coordinates.Y:F2}";
+                    _chartToolTip.SetToolTip(formsPlot, tooltipText);
+                }
+                catch { }
+            };
+
+            panel.Controls.Add(formsPlot);
+            panel.Controls.Add(titleLabel);
+
+            // ذخیره اطلاعات نمودار برای به‌روزرسانی بعدی
+            formsPlot.Tag = new ChartInfo { XProperty = xAxisProperty, YProperty = yAxisProperty, Title = title };
+
+            return panel;
+        }
+
+        /// <summary>
+        /// ایجاد پنل نمودار بزرگ با چند منحنی
+        /// محور X: ترکیب Frequency + WirelessProtocol + ChannelWidth
+        /// محور Y: مقادیر مختلف با رنگ‌های مختلف
+        /// </summary>
+        /// <returns>پنل حاوی نمودار بزرگ</returns>
+        private Panel CreateMultiSeriesChartPanel()
+        {
+            var panel = new Panel
+            {
+                Dock = DockStyle.Fill,
+                Padding = new Padding(5),
+                BorderStyle = BorderStyle.FixedSingle,
+                BackColor = Color.White
+            };
+
+            var titleLabel = new Label
+            {
+                Text = "نمودار جامع: ترکیب Frequency + Protocol + ChannelWidth",
+                Dock = DockStyle.Top,
+                Height = 30,
+                TextAlign = ContentAlignment.MiddleCenter,
+                Font = new Font("Tahoma", 10F, FontStyle.Bold),
+                BackColor = Color.FromArgb(240, 240, 240)
+            };
+
+            var formsPlot = new ScottPlotWinForms.FormsPlot
+            {
+                Dock = DockStyle.Fill
+            };
+
+            // فعال‌سازی نمایش مختصات هنگام حرکت موس
+            formsPlot.MouseMove += (s, e) => 
+            {
+                try
+                {
+                    var coordinates = formsPlot.Plot.GetCoordinates(e.X, e.Y);
+                    
+                    if (_chartToolTip == null)
+                    {
+                        _chartToolTip = new ToolTip
+                        {
+                            IsBalloon = false,
+                            UseAnimation = true,
+                            UseFading = true,
+                            AutoPopDelay = 5000,
+                            InitialDelay = 100,
+                            ReshowDelay = 100
+                        };
+                    }
+                    
+                    var tooltipText = $"X: {coordinates.X:F0}\nY: {coordinates.Y:F2}";
+                    _chartToolTip.SetToolTip(formsPlot, tooltipText);
+                }
+                catch { }
+            };
+
+            panel.Controls.Add(formsPlot);
+            panel.Controls.Add(titleLabel);
+
+            // ذخیره اطلاعات نمودار برای به‌روزرسانی بعدی
+            formsPlot.Tag = new ChartInfo { Title = "نمودار جامع" };
+
+            return panel;
+        }
+
+        /// <summary>
+        /// ایجاد پنل نمودار برای مقایسه مقادیر بر اساس یک property
+        /// </summary>
+        /// <param name="title">عنوان نمودار</param>
+        /// <param name="groupByProperty">نام property برای گروه‌بندی</param>
+        /// <param name="valueProperty">نام property برای مقایسه</param>
+        /// <returns>پنل حاوی نمودار</returns>
+        private Panel CreateComparisonChartPanel(string title, string groupByProperty, string valueProperty)
+        {
+            var panel = new Panel
+            {
+                Dock = DockStyle.Fill,
+                Padding = new Padding(5),
+                BorderStyle = BorderStyle.FixedSingle,
+                BackColor = Color.White
+            };
+
+            var titleLabel = new Label
+            {
+                Text = title,
+                Dock = DockStyle.Top,
+                Height = 30,
+                TextAlign = ContentAlignment.MiddleCenter,
+                Font = new Font("Tahoma", 9F, FontStyle.Bold),
+                BackColor = Color.FromArgb(240, 240, 240)
+            };
+
+            var formsPlot = new ScottPlotWinForms.FormsPlot
+            {
+                Dock = DockStyle.Fill
+            };
+
+            // فعال‌سازی نمایش مختصات هنگام حرکت موس
+            formsPlot.MouseMove += (s, e) => 
+            {
+                try
+                {
+                    var coordinates = formsPlot.Plot.GetCoordinates(e.X, e.Y);
+                    var xLabel = GetPropertyDisplayName(groupByProperty);
+                    var yLabel = GetPropertyDisplayName(valueProperty);
+                    
+                    if (_chartToolTip == null)
+                    {
+                        _chartToolTip = new ToolTip
+                        {
+                            IsBalloon = false,
+                            UseAnimation = true,
+                            UseFading = true,
+                            AutoPopDelay = 5000,
+                            InitialDelay = 100,
+                            ReshowDelay = 100
+                        };
+                    }
+                    
+                    var tooltipText = $"{xLabel}: {coordinates.X:F0}\n{yLabel}: {coordinates.Y:F2}";
+                    _chartToolTip.SetToolTip(formsPlot, tooltipText);
+                }
+                catch { }
+            };
+
+            panel.Controls.Add(formsPlot);
+            panel.Controls.Add(titleLabel);
+
+            // ذخیره اطلاعات نمودار برای به‌روزرسانی بعدی
+            formsPlot.Tag = new ChartInfo { GroupByProperty = groupByProperty, ValueProperty = valueProperty, Title = title };
+
+            return panel;
+        }
+
+        /// <summary>
+        /// به‌روزرسانی تمام نمودارها با داده‌های جدید
+        /// این متد باید بعد از اضافه شدن نتایج جدید فراخوانی شود
+        /// </summary>
+        private void UpdateCharts()
+        {
+            if (_allResults == null || _allResults.Count == 0)
+            {
+                System.Diagnostics.Debug.WriteLine("UpdateCharts: _allResults is null or empty");
+                return;
+            }
+
+            try
+            {
+                // پیدا کردن تب نمودارها
+                var tabControl = this.Controls.OfType<TabControl>().FirstOrDefault();
+                if (tabControl == null)
+                {
+                    System.Diagnostics.Debug.WriteLine("UpdateCharts: TabControl not found");
+                    return;
+                }
+
+                var chartsTab = tabControl.TabPages.Cast<TabPage>()
+                    .FirstOrDefault(t => t.Text.Contains("نمودارها"));
+
+                if (chartsTab == null)
+                {
+                    System.Diagnostics.Debug.WriteLine("UpdateCharts: Charts tab not found");
+                    return;
+                }
+
+                // پیدا کردن تمام FormsPlot controls
+                // ابتدا SplitContainer را بررسی می‌کنیم (برای نمودار بزرگ)
+                var splitContainer = chartsTab.Controls.OfType<SplitContainer>().FirstOrDefault();
+                var chartPanels = new List<Panel>();
+
+                if (splitContainer != null)
+                {
+                    // نمودار بزرگ در Panel1
+                    var largeChartPanel = splitContainer.Panel1.Controls.OfType<Panel>()
+                        .FirstOrDefault(p => p.Controls.OfType<ScottPlotWinForms.FormsPlot>().Any());
+                    if (largeChartPanel != null)
+                    {
+                        chartPanels.Add(largeChartPanel);
+                    }
+
+                    // نمودارهای کوچک در Panel2 -> TableLayoutPanel
+                    var smallChartsPanel = splitContainer.Panel2.Controls.OfType<TableLayoutPanel>().FirstOrDefault();
+                    if (smallChartsPanel != null)
+                    {
+                        var smallPanels = smallChartsPanel.Controls.OfType<Panel>()
+                            .Where(p => p.Controls.OfType<ScottPlotWinForms.FormsPlot>().Any())
+                            .ToList();
+                        chartPanels.AddRange(smallPanels);
+                    }
+                }
+                else
+                {
+                    // اگر SplitContainer وجود نداشت، TableLayoutPanel را بررسی می‌کنیم (ساختار قدیمی)
+                    var mainPanel = chartsTab.Controls.OfType<TableLayoutPanel>().FirstOrDefault();
+                    if (mainPanel != null)
+                    {
+                        var panels = mainPanel.Controls.OfType<Panel>()
+                            .Where(p => p.Controls.OfType<ScottPlotWinForms.FormsPlot>().Any())
+                            .ToList();
+                        chartPanels.AddRange(panels);
+                    }
+                }
+
+                if (chartPanels == null || chartPanels.Count == 0)
+                {
+                    System.Diagnostics.Debug.WriteLine("UpdateCharts: No chart panels found");
+                    return;
+                }
+
+                System.Diagnostics.Debug.WriteLine($"UpdateCharts: Found {chartPanels.Count} chart panels, Total results: {_allResults.Count}");
+
+                // فیلتر کردن نتایج معتبر (همه نتایج به جز "خطا" و "base")
+                var validResults = _allResults
+                    .Where(r => r.Status != "خطا" && r.Status != "base" && !string.IsNullOrEmpty(r.Status))
+                    .ToList();
+
+                System.Diagnostics.Debug.WriteLine($"UpdateCharts: Valid results count: {validResults.Count}");
+
+                if (validResults.Count == 0)
+                {
+                    System.Diagnostics.Debug.WriteLine("UpdateCharts: No valid results to display");
+                    // نمایش پیام در نمودارها که داده‌ای وجود ندارد
+                    foreach (var chartPanel in chartPanels)
+                    {
+                        var formsPlot = chartPanel.Controls.OfType<ScottPlotWinForms.FormsPlot>().FirstOrDefault();
+                        if (formsPlot != null)
+                        {
+                            formsPlot.Plot.Clear();
+                            formsPlot.Plot.Title("هیچ داده معتبری برای نمایش وجود ندارد");
+                            formsPlot.Refresh();
+                        }
+                    }
+                    return;
+                }
+
+                foreach (var chartPanel in chartPanels)
+                {
+                    var formsPlot = chartPanel.Controls.OfType<ScottPlotWinForms.FormsPlot>().FirstOrDefault();
+                    if (formsPlot == null || formsPlot.Tag == null)
+                        continue;
+
+                    var chartInfo = formsPlot.Tag as ChartInfo;
+                    if (chartInfo == null)
+                        continue;
+
+                    formsPlot.Plot.Clear();
+
+                    // اگر نمودار جامع است
+                    if (chartInfo.Title == "نمودار جامع")
+                    {
+                        UpdateMultiSeriesChart(formsPlot, validResults);
+                    }
+                    // اگر نمودار مقایسه‌ای است
+                    else if (!string.IsNullOrEmpty(chartInfo.GroupByProperty))
+                    {
+                        UpdateComparisonChart(formsPlot, validResults, chartInfo.GroupByProperty, chartInfo.ValueProperty ?? "", chartInfo.Title ?? "");
+                    }
+                    // اگر نمودار خطی است
+                    else if (!string.IsNullOrEmpty(chartInfo.XProperty) && !string.IsNullOrEmpty(chartInfo.YProperty))
+                    {
+                        UpdateLineChart(formsPlot, validResults, chartInfo.XProperty, chartInfo.YProperty, chartInfo.Title ?? "");
+                    }
+
+                    formsPlot.Refresh();
+                }
+
+                System.Diagnostics.Debug.WriteLine("UpdateCharts: Charts updated successfully");
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"Error updating charts: {ex.Message}\n{ex.StackTrace}");
+                ErrorHandler.ShowErrorWithSupport(ex, "به‌روزرسانی نمودارها", _txtTerminalLog);
+            }
+        }
+
+        /// <summary>
+        /// به‌روزرسانی نمودار خطی
+        /// </summary>
+        private void UpdateLineChart(ScottPlotWinForms.FormsPlot formsPlot, List<FrequencyScanResult> results, string xProperty, string yProperty, string title)
+        {
+            try
+            {
+                var xPropertyInfo = typeof(FrequencyScanResult).GetProperty(xProperty);
+                var yPropertyInfo = typeof(FrequencyScanResult).GetProperty(yProperty);
+
+                if (xPropertyInfo == null || yPropertyInfo == null)
+                    return;
+
+                var xValues = new List<double>();
+                var yValues = new List<double>();
+
+                foreach (var result in results.OrderBy(r => GetPropertyValue(r, xPropertyInfo)))
+                {
+                    var xValue = GetPropertyValue(result, xPropertyInfo);
+                    var yValue = GetPropertyValue(result, yPropertyInfo);
+
+                    if (xValue.HasValue && yValue.HasValue)
+                    {
+                        xValues.Add(xValue.Value);
+                        yValues.Add(yValue.Value);
+                    }
+                }
+
+                if (xValues.Count > 0 && yValues.Count > 0)
+                {
+                    var scatter = formsPlot.Plot.Add.Scatter(xValues.ToArray(), yValues.ToArray());
+                    scatter.LineWidth = 2;
+                    scatter.MarkerSize = 5;
+                    formsPlot.Plot.Title(title);
+                    formsPlot.Plot.Axes.Bottom.Label.Text = GetPropertyDisplayName(xProperty);
+                    formsPlot.Plot.Axes.Left.Label.Text = GetPropertyDisplayName(yProperty);
+                    formsPlot.Plot.ShowGrid();
+                    
+                    // فعال‌سازی Crosshair برای نمایش مقدار
+                    var crosshair = formsPlot.Plot.Add.Crosshair(0, 0);
+                    crosshair.IsVisible = true;
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"Error updating line chart: {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// به‌روزرسانی نمودار جامع با چند منحنی
+        /// </summary>
+        private void UpdateMultiSeriesChart(ScottPlotWinForms.FormsPlot formsPlot, List<FrequencyScanResult> results)
+        {
+            try
+            {
+                if (results.Count == 0)
+                    return;
+
+                // مرتب‌سازی نتایج بر اساس ترکیب Frequency + Protocol + ChannelWidth
+                var sortedResults = results.OrderBy(r =>
+                {
+                    var freq = Math.Round(r.Frequency, 0);
+                    var protocol = r.WirelessProtocol ?? "unknown";
+                    var channelWidth = r.ChannelWidth ?? "unknown";
+                    return $"{freq}-{protocol}-{channelWidth}";
+                }).ToList();
+
+                // ایجاد برچسب‌های محور X (ترکیب Frequency + Protocol + ChannelWidth)
+                var xLabels = sortedResults.Select(r =>
+                {
+                    var freq = Math.Round(r.Frequency, 0);
+                    var protocol = r.WirelessProtocol ?? "unknown";
+                    var channelWidth = r.ChannelWidth ?? "unknown";
+                    return $"{freq}-{protocol}-{channelWidth}";
+                }).ToArray();
+
+                var xPositions = Enumerable.Range(0, xLabels.Length).Select(i => (double)i).ToArray();
+
+                // تعریف سری‌های مختلف با رنگ‌های مختلف
+                var series = new[]
+                {
+                    new { Name = "NoiseFloor", Property = "NoiseFloor", Color = ScottPlot.Color.FromHex("#FF0000") }, // Red
+                    new { Name = "CCQ", Property = "CCQ", Color = ScottPlot.Color.FromHex("#0000FF") }, // Blue
+                    new { Name = "RemoteSignalStrength", Property = "RemoteSignalStrength", Color = ScottPlot.Color.FromHex("#00FF00") }, // Green
+                    new { Name = "RemoteSignalToNoiseRatio", Property = "RemoteSignalToNoiseRatio", Color = ScottPlot.Color.FromHex("#FFA500") }, // Orange
+                    new { Name = "RemoteTxRate", Property = "RemoteTxRate", Color = ScottPlot.Color.FromHex("#800080") }, // Purple
+                    new { Name = "RemoteRxRate", Property = "RemoteRxRate", Color = ScottPlot.Color.FromHex("#A52A2A") }, // Brown
+                    new { Name = "RemoteTxCCQ", Property = "RemoteTxCCQ", Color = ScottPlot.Color.FromHex("#FFC0CB") }, // Pink
+                    new { Name = "RemoteRxCCQ", Property = "RemoteRxCCQ", Color = ScottPlot.Color.FromHex("#00FFFF") }, // Cyan
+                    new { Name = "PingTime", Property = "PingTime", Color = ScottPlot.Color.FromHex("#FF00FF") } // Magenta
+                };
+
+                var propertyInfo = typeof(FrequencyScanResult);
+                var legendItems = new List<string>();
+
+                foreach (var serie in series)
+                {
+                    var prop = propertyInfo.GetProperty(serie.Property);
+                    if (prop == null)
+                        continue;
+
+                    var yValues = new List<double?>();
+                    foreach (var result in sortedResults)
+                    {
+                        var value = GetPropertyValue(result, prop);
+                        yValues.Add(value);
+                    }
+
+                    // فقط اگر حداقل یک مقدار معتبر وجود داشته باشد
+                    if (yValues.Any(v => v.HasValue))
+                    {
+                        // تبدیل به آرایه double (null ها را با NaN جایگزین می‌کنیم)
+                        var yValuesArray = yValues.Select(v => v ?? double.NaN).ToArray();
+
+                        var scatter = formsPlot.Plot.Add.Scatter(xPositions, yValuesArray);
+                        scatter.LineWidth = 2;
+                        scatter.MarkerSize = 4;
+                        scatter.Color = serie.Color;
+                        scatter.Label = serie.Name;
+
+                        legendItems.Add(serie.Name);
+                    }
+                }
+
+                // تنظیم برچسب‌های محور X
+                formsPlot.Plot.Axes.Bottom.TickGenerator = new ScottPlot.TickGenerators.NumericManual(xPositions, xLabels);
+                formsPlot.Plot.Axes.Bottom.TickLabelStyle.Rotation = 45;
+                formsPlot.Plot.Axes.Bottom.Label.Text = "ترکیب: Frequency-Protocol-ChannelWidth";
+
+                // تنظیم محور Y
+                formsPlot.Plot.Axes.Left.Label.Text = "مقدار";
+
+                // نمایش راهنما (Legend)
+                if (legendItems.Count > 0)
+                {
+                    formsPlot.Plot.ShowLegend();
+                }
+
+                formsPlot.Plot.Title("نمودار جامع: ترکیب Frequency + Protocol + ChannelWidth");
+                formsPlot.Plot.ShowGrid();
+                
+                // فعال‌سازی Crosshair برای نمایش مقدار
+                var crosshair = formsPlot.Plot.Add.Crosshair(0, 0);
+                crosshair.IsVisible = true;
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"Error updating multi-series chart: {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// به‌روزرسانی نمودار مقایسه‌ای (ستونی)
+        /// </summary>
+        private void UpdateComparisonChart(ScottPlotWinForms.FormsPlot formsPlot, List<FrequencyScanResult> results, string groupByProperty, string valueProperty, string title)
+        {
+            try
+            {
+                var groupByPropertyInfo = typeof(FrequencyScanResult).GetProperty(groupByProperty);
+                var valuePropertyInfo = typeof(FrequencyScanResult).GetProperty(valueProperty);
+
+                if (groupByPropertyInfo == null || valuePropertyInfo == null)
+                    return;
+
+                // گروه‌بندی نتایج بر اساس groupByProperty و محاسبه میانگین valueProperty
+                var grouped = results
+                    .Where(r => GetPropertyValue(r, valuePropertyInfo).HasValue)
+                    .GroupBy(r =>
+                    {
+                        var value = groupByPropertyInfo.GetValue(r);
+                        return value?.ToString() ?? "نامشخص";
+                    })
+                    .Select(g => new
+                    {
+                        Group = g.Key,
+                        AverageValue = g.Average(r => GetPropertyValue(r, valuePropertyInfo).Value),
+                        Count = g.Count()
+                    })
+                    .OrderBy(x => x.Group)
+                    .ToList();
+
+                if (grouped.Count == 0)
+                    return;
+
+                var positions = new double[grouped.Count];
+                var values = new double[grouped.Count];
+                var labels = new string[grouped.Count];
+
+                for (int i = 0; i < grouped.Count; i++)
+                {
+                    positions[i] = i;
+                    values[i] = grouped[i].AverageValue;
+                    labels[i] = grouped[i].Group;
+                }
+
+                var bar = formsPlot.Plot.Add.Bars(values);
+                formsPlot.Plot.Title(title);
+                formsPlot.Plot.Axes.Bottom.Label.Text = GetPropertyDisplayName(groupByProperty);
+                formsPlot.Plot.Axes.Left.Label.Text = GetPropertyDisplayName(valueProperty);
+                
+                // تنظیم برچسب‌های محور X
+                formsPlot.Plot.Axes.Bottom.TickGenerator = new ScottPlot.TickGenerators.NumericManual(positions, labels);
+                formsPlot.Plot.ShowGrid();
+                
+                // فعال‌سازی Crosshair برای نمایش مقدار
+                var crosshair = formsPlot.Plot.Add.Crosshair(0, 0);
+                crosshair.IsVisible = true;
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"Error updating comparison chart: {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// دریافت مقدار property به صورت double?
+        /// </summary>
+        private double? GetPropertyValue(FrequencyScanResult result, System.Reflection.PropertyInfo propertyInfo)
+        {
+            try
+            {
+                var value = propertyInfo.GetValue(result);
+                if (value == null)
+                    return null;
+
+                if (value is double d)
+                    return d;
+                var nullableDouble = value as double?;
+                if (nullableDouble.HasValue)
+                    return nullableDouble.Value;
+                if (value is int i)
+                    return i;
+                var nullableInt = value as int?;
+                if (nullableInt.HasValue)
+                    return nullableInt.Value;
+                if (value is long l)
+                    return l;
+                var nullableLong = value as long?;
+                if (nullableLong.HasValue)
+                    return nullableLong.Value;
+                if (value is float f)
+                    return f;
+                var nullableFloat = value as float?;
+                if (nullableFloat.HasValue)
+                    return nullableFloat.Value;
+
+                if (double.TryParse(value.ToString(), out double parsed))
+                    return parsed;
+
+                return null;
+            }
+            catch
+            {
+                return null;
+            }
+        }
+
+        // ToolTip مشترک برای تمام نمودارها
+        private ToolTip? _chartToolTip;
+
+        /// <summary>
+        /// نمایش مختصات نمودار خطی هنگام حرکت موس
+        /// </summary>
+        private void ShowChartCoordinates(ScottPlotWinForms.FormsPlot formsPlot, MouseEventArgs e, string xProperty, string yProperty)
+        {
+            try
+            {
+                if (_chartToolTip == null)
+                {
+                    _chartToolTip = new ToolTip
+                    {
+                        IsBalloon = false,
+                        UseAnimation = true,
+                        UseFading = true,
+                        AutoPopDelay = 5000,
+                        InitialDelay = 100,
+                        ReshowDelay = 100
+                    };
+                }
+
+                var coordinates = formsPlot.Plot.GetCoordinates(e.X, e.Y);
+                var xLabel = GetPropertyDisplayName(xProperty);
+                var yLabel = GetPropertyDisplayName(yProperty);
+                
+                // نمایش مختصات در tooltip
+                var tooltipText = $"{xLabel}: {coordinates.X:F2}\n{yLabel}: {coordinates.Y:F2}";
+                _chartToolTip.SetToolTip(formsPlot, tooltipText);
+            }
+            catch
+            {
+                // Ignore errors
+            }
+        }
+
+        /// <summary>
+        /// نمایش مختصات نمودار جامع هنگام حرکت موس
+        /// </summary>
+        private void ShowMultiSeriesChartCoordinates(ScottPlotWinForms.FormsPlot formsPlot, MouseEventArgs e)
+        {
+            try
+            {
+                if (_chartToolTip == null)
+                {
+                    _chartToolTip = new ToolTip
+                    {
+                        IsBalloon = false,
+                        UseAnimation = true,
+                        UseFading = true,
+                        AutoPopDelay = 5000,
+                        InitialDelay = 100,
+                        ReshowDelay = 100
+                    };
+                }
+
+                var coordinates = formsPlot.Plot.GetCoordinates(e.X, e.Y);
+                
+                // نمایش مختصات
+                var tooltipText = $"X: {coordinates.X:F0}\nY: {coordinates.Y:F2}";
+                _chartToolTip.SetToolTip(formsPlot, tooltipText);
+            }
+            catch
+            {
+                // Ignore errors
+            }
+        }
+
+        /// <summary>
+        /// نمایش مختصات نمودار مقایسه‌ای هنگام حرکت موس
+        /// </summary>
+        private void ShowComparisonChartCoordinates(ScottPlotWinForms.FormsPlot formsPlot, MouseEventArgs e, string groupByProperty, string valueProperty)
+        {
+            try
+            {
+                if (_chartToolTip == null)
+                {
+                    _chartToolTip = new ToolTip
+                    {
+                        IsBalloon = false,
+                        UseAnimation = true,
+                        UseFading = true,
+                        AutoPopDelay = 5000,
+                        InitialDelay = 100,
+                        ReshowDelay = 100
+                    };
+                }
+
+                var coordinates = formsPlot.Plot.GetCoordinates(e.X, e.Y);
+                var xLabel = GetPropertyDisplayName(groupByProperty);
+                var yLabel = GetPropertyDisplayName(valueProperty);
+                
+                var tooltipText = $"{xLabel}: {coordinates.X:F0}\n{yLabel}: {coordinates.Y:F2}";
+                _chartToolTip.SetToolTip(formsPlot, tooltipText);
+            }
+            catch
+            {
+                // Ignore errors
+            }
+        }
+
+        /// <summary>
+        /// دریافت نام نمایشی property
+        /// </summary>
+        private string GetPropertyDisplayName(string propertyName)
+        {
+            var displayNames = new Dictionary<string, string>
+            {
+                { "Frequency", "فرکانس (MHz)" },
+                { "SignalToNoiseRatio", "SNR (dB)" },
+                { "SignalStrength", "قدرت سیگنال (dBm)" },
+                { "CCQ", "CCQ (%)" },
+                { "PingAverageTime", "زمان Ping (ms)" },
+                { "WirelessProtocol", "پروتکل Wireless" },
+                { "ChannelWidth", "عرض کانال" }
+            };
+
+            return displayNames.ContainsKey(propertyName) ? displayNames[propertyName] : propertyName;
         }
 
         private void CreateTerminalLogTab(TabPage tab)
@@ -1933,6 +2743,9 @@ namespace Ntk.Mikrotik.Tools
                     _allResults.Add(result);
                     _currentResults.Add(result);
                     
+                    // Update charts with new data
+                    UpdateCharts();
+                    
                     // Force DataGridView to update and show new row
                     if (_dgvResults != null)
                     {
@@ -2331,6 +3144,9 @@ namespace Ntk.Mikrotik.Tools
                             
                             // Apply filters and refresh
                             ApplyFilters();
+                            
+                            // Update charts with loaded data
+                            UpdateCharts();
                             
                             // Refresh DataGridView
                             if (_dgvResults != null)
