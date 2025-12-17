@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
+using System.Net.NetworkInformation;
 using Ntk.Mikrotik.Tools.Models;
 
 namespace Ntk.Mikrotik.Tools.Services
@@ -148,11 +149,34 @@ namespace Ntk.Mikrotik.Tools.Services
             }
             catch (Exception ex)
             {
-                OnStatusUpdate($"خطا: {ex.Message}");
+                try
+                {
+                    var errorMsg = $"خطا در اسکن: {ex.Message}";
+                    if (ex.InnerException != null)
+                    {
+                        errorMsg += $"\nخطای داخلی: {ex.InnerException.Message}";
+                    }
+                    errorMsg += $"\n\nنوع خطا: {ex.GetType().Name}\n\n" +
+                               $"اگر مشکل ادامه داشت، لطفاً به پشتیبانی اطلاع دهید.";
+                    OnStatusUpdate($"خطا: {ex.Message}");
+                    OnTerminalData($"[ERROR] {errorMsg}");
+                }
+                catch
+                {
+                    // اگر حتی لاگ کردن هم خطا داد، حداقل یک پیام ساده نمایش بده
+                    OnStatusUpdate("خطا در اسکن");
+                }
             }
             finally
             {
-                _sshClient.Disconnect();
+                try
+                {
+                    _sshClient?.Disconnect();
+                }
+                catch
+                {
+                    // Ignore disconnect errors
+                }
             }
 
             return results;
@@ -179,7 +203,7 @@ namespace Ntk.Mikrotik.Tools.Services
             var frequencies = new List<double>();
             for (double freq = start; freq <= end; freq += step)
             {
-                frequencies.Add(Math.Round(freq, 2));
+                frequencies.Add(Math.Round(freq, 0));
             }
             return frequencies;
         }
@@ -213,14 +237,16 @@ namespace Ntk.Mikrotik.Tools.Services
         /// دریافت وضعیت فعلی اینترفیس و آنتن‌های متصل
         /// این متد اطلاعات کامل از اینترفیس فعلی و آنتن‌های رجیستر شده را دریافت می‌کند
         /// </summary>
+        /// <param name="frequency">فرکانس مورد نظر (اختیاری) - اگر null باشد، فرکانس فعلی از اینترفیس خوانده می‌شود</param>
+        /// <param name="status">وضعیت نتیجه (پیش‌فرض: "base")</param>
         /// <returns>نتیجه اسکن شامل تمام اطلاعات اینترفیس و آنتن‌های remote</returns>
-        public async Task<FrequencyScanResult> GetCurrentStatusAsync()
+        public async Task<FrequencyScanResult> GetCurrentStatusAsync(double? frequency = null, string status = "base")
         {
             var result = new FrequencyScanResult
             {
-                Frequency = 0, // Will be set from current interface
+                Frequency = frequency.HasValue ? Math.Round(frequency.Value, 0) : 0, // Will be set from current interface if not provided
                 ScanTime = DateTime.Now,
-                Status = "base"
+                Status = status
             };
 
             try
@@ -228,46 +254,70 @@ namespace Ntk.Mikrotik.Tools.Services
                 OnStatusUpdate("در حال دریافت اطلاعات اینترفیس فعلی...");
                 OnTerminalData("[GetCurrentStatus] شروع دریافت اطلاعات پایه...");
                 
-                // Get current frequency - use print command to get interface info
-                var getInfoCommand = _settings.CommandGetInterfaceInfo
-                    .Replace("{interface}", _settings.InterfaceName);
-                
-                OnStatusUpdate($"اجرای کامند: {getInfoCommand}");
-                OnTerminalData($"[GetCurrentStatus] اجرای کامند: {getInfoCommand}");
-                var interfaceInfo = await _sshClient.SendCommandAsync(getInfoCommand, 8000);
-                
-                if (string.IsNullOrWhiteSpace(interfaceInfo))
+                // If frequency is not provided, read it from interface
+                if (!frequency.HasValue)
                 {
-                    OnStatusUpdate("هشدار: هیچ پاسخی از کامند دریافت نشد. تلاش با فرمت جایگزین...");
-                    OnTerminalData("[GetCurrentStatus] هشدار: هیچ پاسخی از کامند دریافت نشد.");
-                    // Try alternative command format - use CommandGetInterfaceInfo from settings
-                    var altCommand = _settings.CommandGetInterfaceInfo
-                        .Replace("{interface}", _settings.InterfaceName);
-                    OnStatusUpdate($"تلاش با فرمت جایگزین: {altCommand}");
-                    OnTerminalData($"[GetCurrentStatus] تلاش با فرمت جایگزین: {altCommand}");
-                    interfaceInfo = await _sshClient.SendCommandAsync(altCommand, 8000);
+                    // Get current frequency - use print command to get interface info
+                    var getInfoCommand = ReplaceCommandPlaceholders(_settings.CommandGetInterfaceInfo);
+                    
+                    // Try alternative command if primary fails
+                    var fallbackCommand = ReplaceCommandPlaceholders(_settings.CommandGetFrequency)
+                        .Replace(" value-name=frequency", "");
+                    
+                    var interfaceInfo = await SendCommandWithRetryAsync(
+                        getInfoCommand, 
+                        new List<string> { fallbackCommand }, 
+                        8000, 
+                        "GetCurrentStatus");
+                    
+                    // Parse frequency from the full interface info
+                    var currentFreq = ParseValue(interfaceInfo, "frequency");
+                    if (currentFreq.HasValue)
+                    {
+                        // Round frequency to integer (no decimal places)
+                        result.Frequency = Math.Round(currentFreq.Value, 0);
+                        OnTerminalData($"[GetCurrentStatus] فرکانس فعلی: {result.Frequency} MHz");
+                    }
                 }
-                
-                // Parse frequency from the full interface info
-                var currentFreq = ParseValue(interfaceInfo, "frequency");
-                if (currentFreq.HasValue)
+                else
                 {
-                    result.Frequency = currentFreq.Value;
-                    OnTerminalData($"[GetCurrentStatus] فرکانس فعلی: {currentFreq.Value} MHz");
+                    OnTerminalData($"[GetCurrentStatus] استفاده از فرکانس ارائه شده: {result.Frequency} MHz");
                 }
 
                 // Collect all statistics (this will also call CommandGetRegistrationTable)
                 OnTerminalData("[GetCurrentStatus] شروع جمع‌آوری آمار کامل (شامل Registration Table)...");
                 result = await CollectStatisticsAsync(result);
-                result.Status = "base";
+                result.Status = status;
                 OnTerminalData("[GetCurrentStatus] جمع‌آوری آمار کامل شد.");
+
+                // Perform ping test
+                OnTerminalData("[GetCurrentStatus] شروع تست پینگ...");
+                result = await PerformPingTestAsync(result);
+                OnTerminalData("[GetCurrentStatus] تست پینگ انجام شد.");
 
                 OnStatusUpdate($"وضعیت فعلی دریافت شد - فرکانس: {result.Frequency} MHz");
             }
             catch (Exception ex)
             {
-                result.ErrorMessage = $"خطا در دریافت وضعیت فعلی: {ex.Message}";
-                result.Status = "خطا";
+                try
+                {
+                    var errorMsg = $"خطا در دریافت وضعیت فعلی: {ex.Message}";
+                    if (ex.InnerException != null)
+                    {
+                        errorMsg += $"\nخطای داخلی: {ex.InnerException.Message}";
+                    }
+                    errorMsg += $"\n\nنوع خطا: {ex.GetType().Name}\n\n" +
+                               $"اگر مشکل ادامه داشت، لطفاً به پشتیبانی اطلاع دهید.";
+                    OnTerminalData($"[ERROR] {errorMsg}");
+                    result.ErrorMessage = $"خطا در دریافت وضعیت فعلی: {ex.Message}";
+                    result.Status = "خطا";
+                }
+                catch
+                {
+                    // اگر حتی لاگ کردن هم خطا داد، حداقل یک پیام ساده نمایش بده
+                    result.ErrorMessage = "خطا در دریافت وضعیت فعلی";
+                    result.Status = "خطا";
+                }
             }
 
             return result;
@@ -283,9 +333,11 @@ namespace Ntk.Mikrotik.Tools.Services
         /// <returns>نتیجه اسکن برای این فرکانس</returns>
         private async Task<FrequencyScanResult> ScanFrequencyAsync(double frequency, string? wirelessProtocol = null, string? channelWidth = null)
         {
+            // Round frequency to integer (no decimal places)
+            var frequencyInt = Math.Round(frequency, 0);
             var result = new FrequencyScanResult
             {
-                Frequency = frequency,
+                Frequency = frequencyInt,
                 ScanTime = DateTime.Now,
                 WirelessProtocol = wirelessProtocol,
                 ChannelWidth = channelWidth
@@ -300,10 +352,8 @@ namespace Ntk.Mikrotik.Tools.Services
                     statusMsg += $", Channel Width: {channelWidth}";
                 OnStatusUpdate($"{statusMsg}...");
 
-                // Set frequency
-                var setFreqCommand = _settings.CommandSetFrequency
-                    .Replace("{interface}", _settings.InterfaceName)
-                    .Replace("{frequency}", frequency.ToString(System.Globalization.CultureInfo.InvariantCulture));
+                // Set frequency (round to integer, no decimal places)
+                var setFreqCommand = ReplaceCommandPlaceholders(_settings.CommandSetFrequency, frequency);
                 
                 OnStatusUpdate($"اجرای کامند: {setFreqCommand}");
                 var response = await _sshClient.SendCommandAsync(setFreqCommand);
@@ -322,9 +372,7 @@ namespace Ntk.Mikrotik.Tools.Services
                 // Set wireless-protocol if specified
                 if (!string.IsNullOrEmpty(wirelessProtocol))
                 {
-                    var setProtocolCommand = _settings.CommandSetWirelessProtocol
-                        .Replace("{interface}", _settings.InterfaceName)
-                        .Replace("{protocol}", wirelessProtocol);
+                    var setProtocolCommand = ReplaceCommandPlaceholders(_settings.CommandSetWirelessProtocol, protocol: wirelessProtocol);
                     OnStatusUpdate($"اجرای کامند: {setProtocolCommand}");
                     await _sshClient.SendCommandAsync(setProtocolCommand);
                 }
@@ -332,9 +380,7 @@ namespace Ntk.Mikrotik.Tools.Services
                 // Set channel-width if specified
                 if (!string.IsNullOrEmpty(channelWidth))
                 {
-                    var setChannelWidthCommand = _settings.CommandSetChannelWidth
-                        .Replace("{interface}", _settings.InterfaceName)
-                        .Replace("{channelWidth}", channelWidth);
+                    var setChannelWidthCommand = ReplaceCommandPlaceholders(_settings.CommandSetChannelWidth, channelWidth: channelWidth);
                     OnStatusUpdate($"اجرای کامند: {setChannelWidthCommand}");
                     await _sshClient.SendCommandAsync(setChannelWidthCommand);
                 }
@@ -377,19 +423,35 @@ namespace Ntk.Mikrotik.Tools.Services
                 }
 
                 OnStatusUpdate($"در حال جمع‌آوری اطلاعات...");
-                OnTerminalData($"[ScanFrequency] شروع جمع‌آوری آمار برای فرکانس {frequency} MHz (شامل Registration Table)...");
+                OnTerminalData($"[ScanFrequency] شروع جمع‌آوری آمار برای فرکانس {frequency} MHz...");
 
-                // Collect statistics (this will also call CommandGetRegistrationTable)
-                result = await CollectStatisticsAsync(result);
-                result.Status = "موفق";
-                OnTerminalData($"[ScanFrequency] جمع‌آوری آمار برای فرکانس {frequency} MHz تکمیل شد.");
-
+                // Use GetCurrentStatusAsync to collect statistics and perform ping test (reuse code)
+                result = await GetCurrentStatusAsync(frequency, "موفق");
+                
+                OnTerminalData($"[ScanFrequency] جمع‌آوری آمار و تست پینگ برای فرکانس {frequency} MHz تکمیل شد.");
                 OnStatusUpdate($"تکمیل - فرکانس: {frequency} MHz, SNR: {result.SignalToNoiseRatio} dB");
             }
             catch (Exception ex)
             {
-                result.ErrorMessage = ex.Message;
-                result.Status = "خطا";
+                try
+                {
+                    var errorMsg = $"خطا در اسکن فرکانس: {ex.Message}";
+                    if (ex.InnerException != null)
+                    {
+                        errorMsg += $"\nخطای داخلی: {ex.InnerException.Message}";
+                    }
+                    errorMsg += $"\n\nنوع خطا: {ex.GetType().Name}\n\n" +
+                               $"اگر مشکل ادامه داشت، لطفاً به پشتیبانی اطلاع دهید.";
+                    OnTerminalData($"[ERROR] {errorMsg}");
+                    result.ErrorMessage = ex.Message;
+                    result.Status = "خطا";
+                }
+                catch
+                {
+                    // اگر حتی لاگ کردن هم خطا داد، حداقل یک پیام ساده نمایش بده
+                    result.ErrorMessage = "خطا در اسکن فرکانس";
+                    result.Status = "خطا";
+                }
             }
 
             return result;
@@ -408,33 +470,17 @@ namespace Ntk.Mikrotik.Tools.Services
         {
             try
             {
-                // Get wireless interface info (main source of data)
-                var infoCommand = _settings.CommandGetInterfaceInfo
-                    .Replace("{interface}", _settings.InterfaceName);
+                // Get wireless interface info (main source of data) with retry
+                var infoCommand = ReplaceCommandPlaceholders(_settings.CommandGetInterfaceInfo);
                 
-                OnStatusUpdate($"اجرای کامند: {infoCommand}");
-                var info = await _sshClient.SendCommandAsync(infoCommand, 8000);
-                
-                if (string.IsNullOrWhiteSpace(info))
+                // Try alternative commands if primary fails
+                var fallbackCommands = new List<string>
                 {
-                    OnStatusUpdate("هشدار: هیچ پاسخی از کامند دریافت اطلاعات دریافت نشد. تلاش با فرمت جایگزین...");
-                    // Try alternative command format - use CommandGetInterfaceInfo from settings
-                    var altCommand = _settings.CommandGetInterfaceInfo
-                        .Replace("{interface}", _settings.InterfaceName);
-                    OnStatusUpdate($"تلاش با فرمت جایگزین: {altCommand}");
-                    info = await _sshClient.SendCommandAsync(altCommand, 8000);
-                }
+                    ReplaceCommandPlaceholders(_settings.CommandGetFrequency)
+                        .Replace(" value-name=frequency", "") // Remove value-name restriction for full output
+                };
                 
-                // If still empty, try with simpler print command - use CommandGetFrequency format
-                if (string.IsNullOrWhiteSpace(info))
-                {
-                    OnStatusUpdate("تلاش با کامند print ساده‌تر...");
-                    var printCommand = _settings.CommandGetFrequency
-                        .Replace("{interface}", _settings.InterfaceName)
-                        .Replace(" value-name=frequency", ""); // Remove value-name restriction for full output
-                    OnStatusUpdate($"اجرای کامند: {printCommand}");
-                    info = await _sshClient.SendCommandAsync(printCommand, 8000);
-                }
+                var info = await SendCommandWithRetryAsync(infoCommand, fallbackCommands, 8000, "CollectStatistics");
 
                 // Parse signal strength and noise floor
                 result.SignalStrength = ParseValue(info, "signal-strength");
@@ -467,8 +513,7 @@ namespace Ntk.Mikrotik.Tools.Services
                     OnTerminalData($"[Registration Table] Command Template: {_settings.CommandGetRegistrationTable}");
                     OnTerminalData($"[Registration Table] Interface Name: {_settings.InterfaceName}");
                     
-                    var regTableCommand = _settings.CommandGetRegistrationTable
-                        .Replace("{interface}", _settings.InterfaceName);
+                    var regTableCommand = ReplaceCommandPlaceholders(_settings.CommandGetRegistrationTable);
                     
                     OnTerminalData($"[Registration Table] کامند نهایی: {regTableCommand}");
                     OnTerminalData($"[Registration Table] ========================================");
@@ -605,8 +650,7 @@ namespace Ntk.Mikrotik.Tools.Services
                 // Get monitoring data for real-time rates and better statistics
                 try
                 {
-                    var monitorCommand = _settings.CommandMonitorInterface
-                        .Replace("{interface}", _settings.InterfaceName);
+                    var monitorCommand = ReplaceCommandPlaceholders(_settings.CommandMonitorInterface);
                     var monitor = await _sshClient.SendCommandAsync(monitorCommand, 8000);
                     
                     // Parse noise-floor from monitor (more accurate)
@@ -687,6 +731,84 @@ namespace Ntk.Mikrotik.Tools.Services
             }
 
             return result;
+        }
+
+        /// <summary>
+        /// جایگزینی placeholderها در کامند RouterOS
+        /// این متد placeholderهای رایج را با مقادیر واقعی جایگزین می‌کند
+        /// </summary>
+        /// <param name="commandTemplate">قالب کامند با placeholderها</param>
+        /// <param name="frequency">فرکانس (اختیاری)</param>
+        /// <param name="protocol">پروتکل wireless (اختیاری)</param>
+        /// <param name="channelWidth">عرض کانال (اختیاری)</param>
+        /// <returns>کامند با placeholderهای جایگزین شده</returns>
+        private string ReplaceCommandPlaceholders(string commandTemplate, double? frequency = null, string? protocol = null, string? channelWidth = null)
+        {
+            var command = commandTemplate
+                .Replace("{interface}", _settings.InterfaceName);
+            
+            if (frequency.HasValue)
+            {
+                var roundedFrequency = (int)Math.Round(frequency.Value, 0);
+                command = command.Replace("{frequency}", roundedFrequency.ToString(System.Globalization.CultureInfo.InvariantCulture));
+            }
+            
+            if (!string.IsNullOrEmpty(protocol))
+            {
+                command = command.Replace("{protocol}", protocol);
+            }
+            
+            if (!string.IsNullOrEmpty(channelWidth))
+            {
+                command = command.Replace("{channelWidth}", channelWidth);
+            }
+            
+            return command;
+        }
+
+        /// <summary>
+        /// اجرای یک کامند RouterOS با retry در صورت خالی بودن پاسخ
+        /// این متد کامند اصلی را اجرا می‌کند و در صورت خالی بودن، کامندهای جایگزین را امتحان می‌کند
+        /// </summary>
+        /// <param name="primaryCommand">کامند اصلی</param>
+        /// <param name="fallbackCommands">لیست کامندهای جایگزین (اختیاری)</param>
+        /// <param name="timeout">تایم‌اوت برای هر کامند (میلی‌ثانیه)</param>
+        /// <param name="logPrefix">پیشوند برای لاگ (اختیاری)</param>
+        /// <returns>پاسخ کامند یا string.Empty اگر همه کامندها ناموفق بودند</returns>
+        private async Task<string> SendCommandWithRetryAsync(string primaryCommand, List<string>? fallbackCommands = null, int timeout = 8000, string logPrefix = "")
+        {
+            var commands = new List<string> { primaryCommand };
+            if (fallbackCommands != null && fallbackCommands.Count > 0)
+            {
+                commands.AddRange(fallbackCommands);
+            }
+
+            foreach (var command in commands)
+            {
+                OnStatusUpdate($"اجرای کامند: {command}");
+                if (!string.IsNullOrEmpty(logPrefix))
+                {
+                    OnTerminalData($"[{logPrefix}] اجرای کامند: {command}");
+                }
+
+                var response = await _sshClient.SendCommandAsync(command, timeout);
+                
+                if (!string.IsNullOrWhiteSpace(response))
+                {
+                    return response;
+                }
+
+                if (commands.IndexOf(command) < commands.Count - 1)
+                {
+                    OnStatusUpdate("هشدار: هیچ پاسخی از کامند دریافت نشد. تلاش با کامند جایگزین...");
+                    if (!string.IsNullOrEmpty(logPrefix))
+                    {
+                        OnTerminalData($"[{logPrefix}] هشدار: هیچ پاسخی از کامند دریافت نشد. تلاش با کامند جایگزین...");
+                    }
+                }
+            }
+
+            return string.Empty;
         }
 
         /// <summary>
@@ -1663,6 +1785,114 @@ namespace Ntk.Mikrotik.Tools.Services
         protected virtual void OnStatusUpdate(string message)
         {
             StatusUpdate?.Invoke(this, message);
+        }
+
+        /// <summary>
+        /// انجام تست پینگ به آدرس IP مشخص شده در تنظیمات
+        /// این متد چندین پینگ ارسال می‌کند و آمار کامل (میانگین، حداقل، حداکثر، درصد از دست رفتن) را محاسبه می‌کند
+        /// </summary>
+        /// <param name="result">نتیجه اسکن که باید اطلاعات پینگ به آن اضافه شود</param>
+        /// <returns>نتیجه اسکن با اطلاعات پینگ اضافه شده</returns>
+        private async Task<FrequencyScanResult> PerformPingTestAsync(FrequencyScanResult result)
+        {
+            try
+            {
+                if (string.IsNullOrWhiteSpace(_settings.PingTestIpAddress))
+                {
+                    OnTerminalData("[PingTest] آدرس IP برای تست پینگ تنظیم نشده است.");
+                    return result;
+                }
+
+                result.PingTestIpAddress = _settings.PingTestIpAddress;
+                OnStatusUpdate($"در حال تست پینگ به {_settings.PingTestIpAddress}...");
+                OnTerminalData($"[PingTest] شروع تست پینگ به {_settings.PingTestIpAddress}");
+
+                using var ping = new Ping();
+                const int pingCount = 4; // تعداد پینگ‌های ارسالی
+                const int timeout = 5000; // تایم‌اوت هر پینگ (میلی‌ثانیه)
+                
+                var pingTimes = new List<long>();
+                int successCount = 0;
+                int failedCount = 0;
+
+                for (int i = 0; i < pingCount; i++)
+                {
+                    try
+                    {
+                        OnTerminalData($"[PingTest] ارسال پینگ {i + 1}/{pingCount}...");
+                        var reply = await ping.SendPingAsync(_settings.PingTestIpAddress, timeout);
+                        
+                        if (reply.Status == IPStatus.Success)
+                        {
+                            pingTimes.Add(reply.RoundtripTime);
+                            successCount++;
+                            OnTerminalData($"[PingTest] پینگ {i + 1} موفق: {reply.RoundtripTime}ms");
+                        }
+                        else
+                        {
+                            failedCount++;
+                            OnTerminalData($"[PingTest] پینگ {i + 1} ناموفق: {reply.Status}");
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        failedCount++;
+                        OnTerminalData($"[PingTest] خطا در پینگ {i + 1}: {ex.Message}");
+                    }
+
+                    // فاصله کوتاه بین پینگ‌ها
+                    if (i < pingCount - 1)
+                    {
+                        await Task.Delay(500);
+                    }
+                }
+
+                result.PingPacketsSent = pingCount;
+                result.PingPacketsReceived = successCount;
+                result.PingPacketsLost = failedCount;
+                result.PingLossPercentage = pingCount > 0 ? (double)failedCount / pingCount * 100 : 0;
+                result.PingSuccess = successCount > 0;
+
+                if (pingTimes.Count > 0)
+                {
+                    result.PingMinTime = pingTimes.Min();
+                    result.PingMaxTime = pingTimes.Max();
+                    result.PingAverageTime = (long)pingTimes.Average();
+                    result.PingTime = result.PingAverageTime; // زمان اصلی را میانگین قرار می‌دهیم
+                    
+                    OnTerminalData($"[PingTest] نتایج: موفق={successCount}, ناموفق={failedCount}, میانگین={result.PingAverageTime}ms, حداقل={result.PingMinTime}ms, حداکثر={result.PingMaxTime}ms");
+                    OnStatusUpdate($"پینگ: {result.PingAverageTime}ms (از {pingCount} پینگ: {successCount} موفق، {failedCount} ناموفق)");
+                }
+                else
+                {
+                    result.PingTime = null;
+                    OnTerminalData($"[PingTest] هیچ پینگ موفقی دریافت نشد. همه {pingCount} پینگ ناموفق بودند.");
+                    OnStatusUpdate($"پینگ ناموفق: همه {pingCount} پینگ ناموفق بودند.");
+                }
+            }
+            catch (Exception ex)
+            {
+                try
+                {
+                    var errorMsg = $"خطا در انجام تست پینگ: {ex.Message}";
+                    if (ex.InnerException != null)
+                    {
+                        errorMsg += $"\nخطای داخلی: {ex.InnerException.Message}";
+                    }
+                    errorMsg += $"\n\nنوع خطا: {ex.GetType().Name}\n\n" +
+                               $"اگر مشکل ادامه داشت، لطفاً به پشتیبانی اطلاع دهید.";
+                    OnTerminalData($"[PingTest] [ERROR] {errorMsg}");
+                    OnStatusUpdate($"خطا در تست پینگ: {ex.Message}");
+                    result.PingSuccess = false;
+                }
+                catch
+                {
+                    // اگر حتی لاگ کردن هم خطا داد، حداقل یک پیام ساده نمایش بده
+                    result.PingSuccess = false;
+                }
+            }
+
+            return result;
         }
 
         /// <summary>

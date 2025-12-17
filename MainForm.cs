@@ -10,6 +10,7 @@ using Ntk.Mikrotik.Tools.Models;
 using Ntk.Mikrotik.Tools.Services;
 using MethodInvoker = System.Windows.Forms.MethodInvoker;
 using System.Drawing;
+using SettingsValidationResult = Ntk.Mikrotik.Tools.Services.ValidationResult;
 
 namespace Ntk.Mikrotik.Tools
 {
@@ -87,6 +88,9 @@ namespace Ntk.Mikrotik.Tools
         private FrequencyScanner? _scanner;
         private CancellationTokenSource? _cancellationTokenSource;
         private JsonDataService _jsonService;
+        private SettingsService _settingsService;
+        private ConnectionService _connectionService;
+        private DataFilterService _dataFilterService;
         private BindingList<FrequencyScanResult> _currentResults;
         private BindingSource? _bindingSource;
         private List<FrequencyScanResult> _allResults; // Store all results for filtering
@@ -106,12 +110,13 @@ namespace Ntk.Mikrotik.Tools
         private NumericUpDown? _txtFreqStep;
         private NumericUpDown? _txtStabilizationTime;
         private TextBox? _txtInterface;
+        private TextBox? _txtPingIp;
         private Label? _lblStatus;
         private ProgressBar? _progressBar;
         private Button? _btnStart;
         private Button? _btnStop;
         private DataGridView? _dgvResults;
-        private TextBox? _txtTerminalLog;
+        private RichTextBox? _txtTerminalLog;
         private Dictionary<string, TextBox>? _filterTextBoxes;
         private Dictionary<string, string>? _columnNameToPropertyMap; // Map column name to property name
 
@@ -119,13 +124,62 @@ namespace Ntk.Mikrotik.Tools
         {
             // Initialize fields before InitializeComponent (which calls CreateResultsAndTerminalTab)
             _jsonService = new JsonDataService();
+            _settingsService = new SettingsService();
+            _connectionService = new ConnectionService();
+            _dataFilterService = new DataFilterService();
             _currentResults = new BindingList<FrequencyScanResult>();
             _allResults = new List<FrequencyScanResult>();
             _bindingSource = new BindingSource();
             _columnNameToPropertyMap = new Dictionary<string, string>();
             
-            InitializeComponent();
-            LoadSettings();
+            try
+            {
+                InitializeComponent();
+                LoadSettings();
+            }
+            catch (Exception ex)
+            {
+                // اگر حتی ساخت فرم هم خطا داد، خطا را نمایش بده
+                try
+                {
+                    var errorDetails = $"خطا در راه‌اندازی برنامه:\n\n{ex.Message}";
+                    
+                    if (ex.InnerException != null)
+                    {
+                        errorDetails += $"\n\nخطای داخلی: {ex.InnerException.Message}";
+                    }
+                    
+                    errorDetails += $"\n\nنوع خطا: {ex.GetType().Name}";
+                    
+                    if (!string.IsNullOrEmpty(ex.StackTrace))
+                    {
+                        errorDetails += $"\n\nجزئیات فنی:\n{ex.StackTrace.Substring(0, Math.Min(500, ex.StackTrace.Length))}...";
+                    }
+                    
+                    errorDetails += "\n\n⚠️ لطفاً این پیام را به پشتیبانی اطلاع دهید.";
+                    
+                    MessageBox.Show(
+                        errorDetails,
+                        "خطای راه‌اندازی",
+                        MessageBoxButtons.OK,
+                        MessageBoxIcon.Error);
+                    
+                    // Log to debug output
+                    System.Diagnostics.Debug.WriteLine($"Startup Error: {ex}");
+                }
+                catch
+                {
+                    // اگر حتی نمایش خطا هم خطا داد، برنامه را ببند
+                    try
+                    {
+                        Application.Exit();
+                    }
+                    catch
+                    {
+                        // Ignore - prevent crash
+                    }
+                }
+            }
         }
 
         private void InitializeComponent()
@@ -146,37 +200,37 @@ namespace Ntk.Mikrotik.Tools
             var topPanel = new Panel
             {
                 Dock = DockStyle.Top,
-                Height = 100, // Increased height to accommodate spacing
+                Height = 110, // Fixed height to accommodate all controls
                 Padding = new Padding(10),
                 BackColor = System.Drawing.Color.White,
                 BorderStyle = BorderStyle.FixedSingle
             };
 
-            // Status label
+            // Status label (at top, fixed height)
             _lblStatus = new Label
             {
                 Text = "آماده",
                 Dock = DockStyle.Top,
-                Height = 30, // Increased height for better visibility
+                Height = 25,
                 TextAlign = System.Drawing.ContentAlignment.MiddleLeft,
                 Font = new System.Drawing.Font("Tahoma", 9F, System.Drawing.FontStyle.Bold),
-                Margin = new Padding(0, 10, 0, 0) // Add top margin for spacing from progress bar
+                Margin = new Padding(0, 0, 0, 5)
             };
 
-            // Progress bar
+            // Progress bar (below status label, fixed height)
             _progressBar = new ProgressBar
             {
                 Dock = DockStyle.Top,
                 Height = 25,
                 Style = ProgressBarStyle.Continuous,
-                Margin = new Padding(0, 5, 0, 0) // Add top margin for spacing from buttons
+                Margin = new Padding(0, 0, 0, 5)
             };
 
-            // Buttons panel
+            // Buttons panel (at bottom, fixed height)
             var buttonsPanel = new FlowLayoutPanel
             {
                 Dock = DockStyle.Top,
-                Height = 50, // increased to fully show buttons
+                Height = 50,
                 FlowDirection = FlowDirection.RightToLeft,
                 Padding = new Padding(8, 5, 8, 5)
             };
@@ -247,36 +301,124 @@ namespace Ntk.Mikrotik.Tools
             buttonsPanel.Controls.Add(btnDisconnect);
             buttonsPanel.Controls.Add(btnConnect);
 
+            // Add controls to topPanel in correct order (top to bottom)
             topPanel.Controls.Add(_lblStatus);
             topPanel.Controls.Add(_progressBar);
             topPanel.Controls.Add(buttonsPanel);
 
-            // Tab Control
+            // Tab Control with custom drawing
             var tabControl = new TabControl
             {
                 Dock = DockStyle.Fill,
-                Font = new System.Drawing.Font("Tahoma", 9F),
-                Appearance = TabAppearance.FlatButtons
+                Font = new System.Drawing.Font("Tahoma", 10F, System.Drawing.FontStyle.Bold),
+                Appearance = TabAppearance.Normal,
+                Padding = new Point(0, 0),
+                DrawMode = TabDrawMode.OwnerDrawFixed,
+                ItemSize = new System.Drawing.Size(220, 35), // Increased width for better text visibility
+                SizeMode = TabSizeMode.Fixed
             };
 
             // Settings Tab
-            var settingsTab = new TabPage("تنظیمات");
+            var settingsTab = new TabPage("⚙️ تنظیمات");
+            settingsTab.Tag = (Color.FromArgb(25, 118, 210), Color.White); // (BackColor, ForeColor)
             CreateSettingsTab(settingsTab);
             tabControl.TabPages.Add(settingsTab);
 
             // Results and Terminal Tab (combined)
-            var resultsTab = new TabPage("نتایج و لاگ");
+            var resultsTab = new TabPage("📊 نتایج و لاگ");
+            resultsTab.Tag = (Color.FromArgb(46, 125, 50), Color.White); // (BackColor, ForeColor)
             CreateResultsAndTerminalTab(resultsTab);
             tabControl.TabPages.Add(resultsTab);
 
             // About Tab
-            var aboutTab = new TabPage("درباره ما");
+            var aboutTab = new TabPage("ℹ️ درباره ما");
+            aboutTab.Tag = (Color.FromArgb(123, 31, 162), Color.White); // (BackColor, ForeColor)
             CreateAboutTab(aboutTab);
             tabControl.TabPages.Add(aboutTab);
 
+            // Apply custom drawing to tabs after they are added
+            tabControl.DrawItem += (sender, e) =>
+            {
+                try
+                {
+                    if (e.Index < 0 || e.Index >= tabControl.TabPages.Count)
+                        return;
+
+                    var tab = tabControl.TabPages[e.Index];
+                    if (tab == null) return;
+
+                    var rect = e.Bounds;
+                    var isSelected = tabControl.SelectedIndex == e.Index;
+
+                    // Get colors from Tag
+                    Color backColor = Color.FromArgb(25, 118, 210); // Default blue
+                    Color foreColor = Color.White;
+                    if (tab.Tag is ValueTuple<Color, Color> colors)
+                    {
+                        backColor = colors.Item1;
+                        foreColor = colors.Item2;
+                    }
+
+                    // Draw background
+                    var bgColor = isSelected ? backColor : Color.FromArgb(245, 245, 245);
+                    e.Graphics.FillRectangle(new System.Drawing.SolidBrush(bgColor), rect);
+
+                    // Draw border for selected tab
+                    if (isSelected)
+                    {
+                        e.Graphics.DrawRectangle(new System.Drawing.Pen(backColor, 2), rect);
+                    }
+
+                    // Draw text with icon - ensure proper spacing and visibility
+                    var text = tab.Text ?? "";
+                    var textColor = isSelected ? foreColor : Color.Black;
+                    
+                    // Calculate text rectangle with padding for better visibility
+                    var textRect = new RectangleF(
+                        rect.X + 10, 
+                        rect.Y + 5, 
+                        rect.Width - 20, 
+                        rect.Height - 10
+                    );
+                    
+                    var sf = new StringFormat
+                    {
+                        Alignment = StringAlignment.Center,
+                        LineAlignment = StringAlignment.Center,
+                        Trimming = StringTrimming.EllipsisCharacter,
+                        FormatFlags = StringFormatFlags.NoWrap
+                    };
+                    
+                    // Use TextRenderer for better text rendering with emoji/icon support
+                    TextRenderer.DrawText(
+                        e.Graphics,
+                        text,
+                        tabControl.Font,
+                        Rectangle.Round(textRect),
+                        textColor,
+                        TextFormatFlags.HorizontalCenter | 
+                        TextFormatFlags.VerticalCenter | 
+                        TextFormatFlags.SingleLine |
+                        TextFormatFlags.EndEllipsis
+                    );
+                }
+                catch (Exception ex)
+                {
+                    // Fallback: use default drawing
+                    e.DrawBackground();
+                    e.DrawFocusRectangle();
+                    System.Diagnostics.Debug.WriteLine($"Error drawing tab: {ex.Message}");
+                }
+            };
+
+            // Add controls to form - order matters for Dock layout
+            // tabControl with Dock=Fill should be added first, then topPanel with Dock=Top
+            // This ensures topPanel appears on top and tabControl fills remaining space
             this.Controls.Add(tabControl);
-            this.Controls.Add(topPanel);
-            this.ResumeLayout(false);
+            this.Controls.Add(topPanel); // Add topPanel last so it appears on top
+            
+            this.ResumeLayout(true);
+            this.PerformLayout();
         }
 
         private void CreateSettingsTab(TabPage tab)
@@ -295,7 +437,7 @@ namespace Ntk.Mikrotik.Tools
                 AutoSize = true,
                 AutoSizeMode = AutoSizeMode.GrowAndShrink,
                 ColumnCount = 2,
-                RowCount = 15,
+                RowCount = 17,
                 Padding = new Padding(10)
             };
 
@@ -334,9 +476,10 @@ namespace Ntk.Mikrotik.Tools
             var btnResetDefaults = CreateStyledButton2("بازگشت به پیش‌فرض", "🔄", Color.FromArgb(255, 152, 0));
             btnResetDefaults.Name = "btnResetDefaults";
             
+            // ترتیب منطقی: بازگشت به پیش‌فرض، بارگذاری نتایج، ذخیره تنظیمات
+            buttonPanelTop.Controls.Add(btnResetDefaults);
             buttonPanelTop.Controls.Add(btnLoadResults);
             buttonPanelTop.Controls.Add(btnSave);
-            buttonPanelTop.Controls.Add(btnResetDefaults);
             
             btnLoadResults.Click += (s, e) => LoadPreviousResults();
             btnSave.Click += (s, e) => SaveSettings();
@@ -367,17 +510,17 @@ namespace Ntk.Mikrotik.Tools
 
             // Start Frequency
             panel.Controls.Add(new Label { Text = "فرکانس شروع (MHz):", TextAlign = System.Drawing.ContentAlignment.MiddleRight, Dock = DockStyle.Fill }, 0, row);
-            _txtStartFreq = new NumericUpDown { Name = "txtStartFreq", Minimum = 1000, Maximum = 6000, Value = 2400, DecimalPlaces = 2, Dock = DockStyle.Fill };
+            _txtStartFreq = new NumericUpDown { Name = "txtStartFreq", Minimum = 1000, Maximum = 6000, Value = 2400, DecimalPlaces = 0, Dock = DockStyle.Fill };
             panel.Controls.Add(_txtStartFreq, 1, row++);
 
             // End Frequency
             panel.Controls.Add(new Label { Text = "فرکانس پایان (MHz):", TextAlign = System.Drawing.ContentAlignment.MiddleRight, Dock = DockStyle.Fill }, 0, row);
-            _txtEndFreq = new NumericUpDown { Name = "txtEndFreq", Minimum = 1000, Maximum = 6000, Value = 2500, DecimalPlaces = 2, Dock = DockStyle.Fill };
+            _txtEndFreq = new NumericUpDown { Name = "txtEndFreq", Minimum = 1000, Maximum = 6000, Value = 2500, DecimalPlaces = 0, Dock = DockStyle.Fill };
             panel.Controls.Add(_txtEndFreq, 1, row++);
 
             // Frequency Step
             panel.Controls.Add(new Label { Text = "پرش فرکانس (MHz):", TextAlign = System.Drawing.ContentAlignment.MiddleRight, Dock = DockStyle.Fill }, 0, row);
-            _txtFreqStep = new NumericUpDown { Name = "txtFreqStep", Minimum = 0.1m, Maximum = 100, Value = 1, DecimalPlaces = 2, Dock = DockStyle.Fill };
+            _txtFreqStep = new NumericUpDown { Name = "txtFreqStep", Minimum = 1, Maximum = 100, Value = 5, DecimalPlaces = 0, Dock = DockStyle.Fill };
             panel.Controls.Add(_txtFreqStep, 1, row++);
 
             // Stabilization Time
@@ -389,6 +532,11 @@ namespace Ntk.Mikrotik.Tools
             panel.Controls.Add(new Label { Text = "نام اینترفیس:", TextAlign = System.Drawing.ContentAlignment.MiddleRight, Dock = DockStyle.Fill }, 0, row);
             _txtInterface = new TextBox { Name = "txtInterface", Text = "wlan1", Dock = DockStyle.Fill };
             panel.Controls.Add(_txtInterface, 1, row++);
+
+            // Ping Test IP Address
+            panel.Controls.Add(new Label { Text = "آدرس IP تست پینگ:", TextAlign = System.Drawing.ContentAlignment.MiddleRight, Dock = DockStyle.Fill }, 0, row);
+            _txtPingIp = new TextBox { Name = "txtPingIp", Text = "8.8.8.8", Dock = DockStyle.Fill };
+            panel.Controls.Add(_txtPingIp, 1, row++);
 
             // Wireless Protocols (multiple, comma or newline separated)
             panel.Controls.Add(new Label { Text = "Wireless Protocols\n(جدا شده با کاما یا خط جدید):", TextAlign = System.Drawing.ContentAlignment.MiddleRight, Dock = DockStyle.Fill }, 0, row);
@@ -405,25 +553,15 @@ namespace Ntk.Mikrotik.Tools
             panel.SetColumnSpan(lblCommands, 2);
             panel.Controls.Add(lblCommands, 0, row++);
 
+            // Command Validate Interface (اول باید چک شود)
+            panel.Controls.Add(new Label { Text = "کامند اعتبارسنجی اینترفیس:", TextAlign = System.Drawing.ContentAlignment.MiddleRight, Dock = DockStyle.Fill }, 0, row);
+            var txtCmdValidateInterface = new TextBox { Name = "txtCmdValidateInterface", Text = "/interface wireless print", Dock = DockStyle.Fill };
+            panel.Controls.Add(txtCmdValidateInterface, 1, row++);
+
             // Command Get Frequency
             panel.Controls.Add(new Label { Text = "کامند دریافت فرکانس:", TextAlign = System.Drawing.ContentAlignment.MiddleRight, Dock = DockStyle.Fill }, 0, row);
             var txtCmdGetFreq = new TextBox { Name = "txtCmdGetFreq", Text = "/interface wireless print where name=\"{interface}\" value-name=frequency", Dock = DockStyle.Fill };
             panel.Controls.Add(txtCmdGetFreq, 1, row++);
-
-            // Command Set Frequency
-            panel.Controls.Add(new Label { Text = "کامند تنظیم فرکانس:", TextAlign = System.Drawing.ContentAlignment.MiddleRight, Dock = DockStyle.Fill }, 0, row);
-            var txtCmdSetFreq = new TextBox { Name = "txtCmdSetFreq", Text = "/interface wireless set \"{interface}\" frequency={frequency}", Dock = DockStyle.Fill };
-            panel.Controls.Add(txtCmdSetFreq, 1, row++);
-
-            // Command Set Wireless Protocol
-            panel.Controls.Add(new Label { Text = "کامند تنظیم Wireless Protocol:", TextAlign = System.Drawing.ContentAlignment.MiddleRight, Dock = DockStyle.Fill }, 0, row);
-            var txtCmdSetProtocol = new TextBox { Name = "txtCmdSetProtocol", Text = "/interface wireless set \"{interface}\" wireless-protocol={protocol}", Dock = DockStyle.Fill };
-            panel.Controls.Add(txtCmdSetProtocol, 1, row++);
-
-            // Command Set Channel Width
-            panel.Controls.Add(new Label { Text = "کامند تنظیم Channel Width:", TextAlign = System.Drawing.ContentAlignment.MiddleRight, Dock = DockStyle.Fill }, 0, row);
-            var txtCmdSetChannelWidth = new TextBox { Name = "txtCmdSetChannelWidth", Text = "/interface wireless set \"{interface}\" channel-width={channelWidth}", Dock = DockStyle.Fill };
-            panel.Controls.Add(txtCmdSetChannelWidth, 1, row++);
 
             // Command Get Interface Info
             panel.Controls.Add(new Label { Text = "کامند دریافت اطلاعات:", TextAlign = System.Drawing.ContentAlignment.MiddleRight, Dock = DockStyle.Fill }, 0, row);
@@ -439,6 +577,21 @@ namespace Ntk.Mikrotik.Tools
             panel.Controls.Add(new Label { Text = "کامند Monitor:", TextAlign = System.Drawing.ContentAlignment.MiddleRight, Dock = DockStyle.Fill }, 0, row);
             var txtCmdMonitor = new TextBox { Name = "txtCmdMonitor", Text = "/interface wireless monitor \"{interface}\" once", Dock = DockStyle.Fill };
             panel.Controls.Add(txtCmdMonitor, 1, row++);
+
+            // Command Set Frequency
+            panel.Controls.Add(new Label { Text = "کامند تنظیم فرکانس:", TextAlign = System.Drawing.ContentAlignment.MiddleRight, Dock = DockStyle.Fill }, 0, row);
+            var txtCmdSetFreq = new TextBox { Name = "txtCmdSetFreq", Text = "/interface wireless set \"{interface}\" frequency={frequency}", Dock = DockStyle.Fill };
+            panel.Controls.Add(txtCmdSetFreq, 1, row++);
+
+            // Command Set Wireless Protocol
+            panel.Controls.Add(new Label { Text = "کامند تنظیم Wireless Protocol:", TextAlign = System.Drawing.ContentAlignment.MiddleRight, Dock = DockStyle.Fill }, 0, row);
+            var txtCmdSetProtocol = new TextBox { Name = "txtCmdSetProtocol", Text = "/interface wireless set \"{interface}\" wireless-protocol={protocol}", Dock = DockStyle.Fill };
+            panel.Controls.Add(txtCmdSetProtocol, 1, row++);
+
+            // Command Set Channel Width
+            panel.Controls.Add(new Label { Text = "کامند تنظیم Channel Width:", TextAlign = System.Drawing.ContentAlignment.MiddleRight, Dock = DockStyle.Fill }, 0, row);
+            var txtCmdSetChannelWidth = new TextBox { Name = "txtCmdSetChannelWidth", Text = "/interface wireless set \"{interface}\" channel-width={channelWidth}", Dock = DockStyle.Fill };
+            panel.Controls.Add(txtCmdSetChannelWidth, 1, row++);
 
             outerPanel.Controls.Add(panel);
             tab.Controls.Add(outerPanel);
@@ -466,13 +619,11 @@ namespace Ntk.Mikrotik.Tools
                 Font = new System.Drawing.Font("Tahoma", 9F, System.Drawing.FontStyle.Bold)
             };
 
-            _txtTerminalLog = new TextBox
+            _txtTerminalLog = new RichTextBox
             {
                 Name = "txtTerminalLog",
                 Dock = DockStyle.Fill,
-                Multiline = true,
                 ReadOnly = true,
-                ScrollBars = ScrollBars.Both,
                 Font = new System.Drawing.Font("Consolas", 9F),
                 BackColor = System.Drawing.Color.Black,
                 ForeColor = System.Drawing.Color.LimeGreen
@@ -587,6 +738,18 @@ namespace Ntk.Mikrotik.Tools
             _dgvResults.Columns.Add(new DataGridViewTextBoxColumn { Name = "RemoteRouterOsVersion", HeaderText = "RouterOS Version Remote", DataPropertyName = "RemoteRouterOsVersion", Width = 170 });
             _dgvResults.Columns.Add(new DataGridViewTextBoxColumn { Name = "RemoteLastIp", HeaderText = "Last IP Remote", DataPropertyName = "RemoteLastIp", Width = 130 });
             
+            // Ping Test Results columns
+            _dgvResults.Columns.Add(new DataGridViewTextBoxColumn { Name = "PingSuccess", HeaderText = "Ping موفق", DataPropertyName = "PingSuccess", Width = 100 });
+            _dgvResults.Columns.Add(new DataGridViewTextBoxColumn { Name = "PingTime", HeaderText = "زمان Ping (ms)", DataPropertyName = "PingTime", Width = 120 });
+            _dgvResults.Columns.Add(new DataGridViewTextBoxColumn { Name = "PingMinTime", HeaderText = "حداقل Ping (ms)", DataPropertyName = "PingMinTime", Width = 130 });
+            _dgvResults.Columns.Add(new DataGridViewTextBoxColumn { Name = "PingMaxTime", HeaderText = "حداکثر Ping (ms)", DataPropertyName = "PingMaxTime", Width = 130 });
+            _dgvResults.Columns.Add(new DataGridViewTextBoxColumn { Name = "PingAverageTime", HeaderText = "میانگین Ping (ms)", DataPropertyName = "PingAverageTime", Width = 140 });
+            _dgvResults.Columns.Add(new DataGridViewTextBoxColumn { Name = "PingPacketsSent", HeaderText = "بسته‌های ارسالی", DataPropertyName = "PingPacketsSent", Width = 120 });
+            _dgvResults.Columns.Add(new DataGridViewTextBoxColumn { Name = "PingPacketsReceived", HeaderText = "بسته‌های دریافتی", DataPropertyName = "PingPacketsReceived", Width = 130 });
+            _dgvResults.Columns.Add(new DataGridViewTextBoxColumn { Name = "PingPacketsLost", HeaderText = "بسته‌های از دست رفته", DataPropertyName = "PingPacketsLost", Width = 140 });
+            _dgvResults.Columns.Add(new DataGridViewTextBoxColumn { Name = "PingLossPercentage", HeaderText = "درصد از دست رفتن (%)", DataPropertyName = "PingLossPercentage", Width = 150 });
+            _dgvResults.Columns.Add(new DataGridViewTextBoxColumn { Name = "PingTestIpAddress", HeaderText = "آدرس IP تست Ping", DataPropertyName = "PingTestIpAddress", Width = 140 });
+            
             _dgvResults.Columns.Add(new DataGridViewTextBoxColumn { Name = "Status", HeaderText = "وضعیت", DataPropertyName = "Status", Width = 100 });
             _dgvResults.Columns.Add(new DataGridViewTextBoxColumn { Name = "ScanTime", HeaderText = "زمان اسکن", DataPropertyName = "ScanTime", Width = 150 });
 
@@ -600,23 +763,94 @@ namespace Ntk.Mikrotik.Tools
                 }
                 else
                 {
-                    var nullableDouble = e.Value as double?;
-                    if (nullableDouble.HasValue && !nullableDouble.Value.Equals(double.NaN))
+                    var columnName = e.ColumnIndex >= 0 ? _dgvResults.Columns[e.ColumnIndex].DataPropertyName : "";
+                    
+                    // Check if this is the Frequency column - display as integer (no decimal places)
+                    if (columnName == "Frequency")
                     {
-                        // Format numbers with 2 decimal places
-                        e.Value = nullableDouble.Value.ToString("F2");
-                        e.FormattingApplied = true;
+                        var nullableDouble = e.Value as double?;
+                        if (nullableDouble.HasValue && !nullableDouble.Value.Equals(double.NaN))
+                        {
+                            e.Value = ((int)Math.Round(nullableDouble.Value, 0)).ToString();
+                            e.FormattingApplied = true;
+                        }
+                        else if (e.Value is double doubleValue && !double.IsNaN(doubleValue))
+                        {
+                            e.Value = ((int)Math.Round(doubleValue, 0)).ToString();
+                            e.FormattingApplied = true;
+                        }
                     }
-                    else if (e.Value is double doubleValue && !double.IsNaN(doubleValue))
+                    // Format PingSuccess as "بله"/"خیر"
+                    else if (columnName == "PingSuccess")
                     {
-                        // Format numbers with 2 decimal places
-                        e.Value = doubleValue.ToString("F2");
-                        e.FormattingApplied = true;
+                        if (e.Value is bool boolValue)
+                        {
+                            e.Value = boolValue ? "بله" : "خیر";
+                            e.FormattingApplied = true;
+                        }
+                        else
+                        {
+                            var nullableBool = e.Value as bool?;
+                            if (nullableBool.HasValue)
+                            {
+                                e.Value = nullableBool.Value ? "بله" : "خیر";
+                                e.FormattingApplied = true;
+                            }
+                        }
                     }
-                    else if (e.Value is DateTime dateTime)
+                    // Format Ping time columns as integers (no decimal places)
+                    else if (columnName == "PingTime" || columnName == "PingMinTime" || 
+                             columnName == "PingMaxTime" || columnName == "PingAverageTime")
                     {
-                        e.Value = dateTime.ToString("yyyy-MM-dd HH:mm:ss");
-                        e.FormattingApplied = true;
+                        if (e.Value is long longValue)
+                        {
+                            e.Value = longValue.ToString();
+                            e.FormattingApplied = true;
+                        }
+                        else
+                        {
+                            var nullableLong = e.Value as long?;
+                            if (nullableLong.HasValue)
+                            {
+                                e.Value = nullableLong.Value.ToString();
+                                e.FormattingApplied = true;
+                            }
+                        }
+                    }
+                    // Format PingLossPercentage as percentage with 2 decimal places
+                    else if (columnName == "PingLossPercentage")
+                    {
+                        var nullableDouble = e.Value as double?;
+                        if (nullableDouble.HasValue && !nullableDouble.Value.Equals(double.NaN))
+                        {
+                            e.Value = nullableDouble.Value.ToString("F2") + "%";
+                            e.FormattingApplied = true;
+                        }
+                        else if (e.Value is double doubleValue && !double.IsNaN(doubleValue))
+                        {
+                            e.Value = doubleValue.ToString("F2") + "%";
+                            e.FormattingApplied = true;
+                        }
+                    }
+                    else
+                    {
+                        // For other numeric columns, format with 2 decimal places
+                        var nullableDouble = e.Value as double?;
+                        if (nullableDouble.HasValue && !nullableDouble.Value.Equals(double.NaN))
+                        {
+                            e.Value = nullableDouble.Value.ToString("F2");
+                            e.FormattingApplied = true;
+                        }
+                        else if (e.Value is double doubleValue && !double.IsNaN(doubleValue))
+                        {
+                            e.Value = doubleValue.ToString("F2");
+                            e.FormattingApplied = true;
+                        }
+                        else if (e.Value is DateTime dateTime)
+                        {
+                            e.Value = dateTime.ToString("yyyy-MM-dd HH:mm:ss");
+                            e.FormattingApplied = true;
+                        }
                     }
                 }
             };
@@ -930,13 +1164,11 @@ namespace Ntk.Mikrotik.Tools
                 Font = new System.Drawing.Font("Tahoma", 9F, System.Drawing.FontStyle.Bold)
             };
 
-            _txtTerminalLog = new TextBox
+            _txtTerminalLog = new RichTextBox
             {
                 Name = "txtTerminalLog",
                 Dock = DockStyle.Fill,
-                Multiline = true,
                 ReadOnly = true,
-                ScrollBars = ScrollBars.Both,
                 Font = new System.Drawing.Font("Consolas", 9F),
                 BackColor = System.Drawing.Color.Black,
                 ForeColor = System.Drawing.Color.LimeGreen
@@ -1098,95 +1330,107 @@ namespace Ntk.Mikrotik.Tools
                 Password = _txtPassword?.Text ?? "",
                 StartFrequency = (double)(_txtStartFreq?.Value ?? 2400),
                 EndFrequency = (double)(_txtEndFreq?.Value ?? 2500),
-                FrequencyStep = (double)(_txtFreqStep?.Value ?? 1),
+                FrequencyStep = (double)(_txtFreqStep?.Value ?? 5),
                 StabilizationTimeMinutes = (int)(_txtStabilizationTime?.Value ?? 2),
                 InterfaceName = _txtInterface?.Text ?? "wlan1",
-                WirelessProtocols = (this.Controls.Find("txtWirelessProtocols", true).FirstOrDefault() as TextBox)?.Text ?? "",
-                ChannelWidths = (this.Controls.Find("txtChannelWidths", true).FirstOrDefault() as TextBox)?.Text ?? "",
+                PingTestIpAddress = _txtPingIp?.Text ?? "8.8.8.8",
+                WirelessProtocols = (this.Controls.Find("txtWirelessProtocols", true).FirstOrDefault() as TextBox)?.Text ?? "nstreme\r\nnv2\r\n802.11",
+                ChannelWidths = (this.Controls.Find("txtChannelWidths", true).FirstOrDefault() as TextBox)?.Text ?? "20/40mhz-eC\r\n20/40mhz-Ce\r\n20mhz\r\n10mhz",
                 CommandGetFrequency = (this.Controls.Find("txtCmdGetFreq", true).FirstOrDefault() as TextBox)?.Text ?? "/interface wireless print where name=\"{interface}\" value-name=frequency",
                 CommandSetFrequency = (this.Controls.Find("txtCmdSetFreq", true).FirstOrDefault() as TextBox)?.Text ?? "/interface wireless set \"{interface}\" frequency={frequency}",
                 CommandSetWirelessProtocol = (this.Controls.Find("txtCmdSetProtocol", true).FirstOrDefault() as TextBox)?.Text ?? "/interface wireless set \"{interface}\" wireless-protocol={protocol}",
                 CommandSetChannelWidth = (this.Controls.Find("txtCmdSetChannelWidth", true).FirstOrDefault() as TextBox)?.Text ?? "/interface wireless set \"{interface}\" channel-width={channelWidth}",
                 CommandGetInterfaceInfo = (this.Controls.Find("txtCmdGetInfo", true).FirstOrDefault() as TextBox)?.Text ?? "/interface wireless print detail where name=\"{interface}\"",
                 CommandGetRegistrationTable = (this.Controls.Find("txtCmdRegTable", true).FirstOrDefault() as TextBox)?.Text ?? "/interface wireless registration-table print stat where interface=\"{interface}\"",
-                CommandMonitorInterface = (this.Controls.Find("txtCmdMonitor", true).FirstOrDefault() as TextBox)?.Text ?? "/interface wireless monitor \"{interface}\" once"
+                CommandMonitorInterface = (this.Controls.Find("txtCmdMonitor", true).FirstOrDefault() as TextBox)?.Text ?? "/interface wireless monitor \"{interface}\" once",
+                CommandValidateInterface = (this.Controls.Find("txtCmdValidateInterface", true).FirstOrDefault() as TextBox)?.Text ?? "/interface wireless print"
             };
         }
 
+        /// <summary>
+        /// بارگذاری تنظیمات از فایل و اعمال به فرم
+        /// </summary>
         private void LoadSettings()
         {
-            // Load from file if exists
             try
             {
-                var settingsFile = System.IO.Path.Combine(Application.StartupPath, "settings.json");
-                if (System.IO.File.Exists(settingsFile))
+                var settings = _settingsService.LoadSettings();
+                
+                // Apply to form
+                if (_txtRouterIp != null) _txtRouterIp.Text = settings.RouterIpAddress;
+                if (_txtSshPort != null) _txtSshPort.Value = settings.SshPort;
+                if (_txtUsername != null) _txtUsername.Text = settings.Username;
+                if (_txtPassword != null) _txtPassword.Text = settings.Password;
+                if (_txtStartFreq != null) _txtStartFreq.Value = (decimal)settings.StartFrequency;
+                if (_txtEndFreq != null) _txtEndFreq.Value = (decimal)settings.EndFrequency;
+                if (_txtFreqStep != null) _txtFreqStep.Value = (decimal)settings.FrequencyStep;
+                if (_txtStabilizationTime != null) _txtStabilizationTime.Value = settings.StabilizationTimeMinutes;
+                if (_txtInterface != null) _txtInterface.Text = settings.InterfaceName;
+                if (_txtPingIp != null) _txtPingIp.Text = settings.PingTestIpAddress;
+                
+                // Load WirelessProtocols and ChannelWidths
+                var txtWirelessProtocols = this.Controls.Find("txtWirelessProtocols", true).FirstOrDefault() as TextBox;
+                if (txtWirelessProtocols != null && !string.IsNullOrEmpty(settings.WirelessProtocols))
                 {
-                    var json = System.IO.File.ReadAllText(settingsFile);
-                    var settings = Newtonsoft.Json.JsonConvert.DeserializeObject<ScanSettings>(json);
-                    
-                    if (settings != null)
-                    {
-                        // Apply to form
-                        if (_txtRouterIp != null) _txtRouterIp.Text = settings.RouterIpAddress;
-                        if (_txtSshPort != null) _txtSshPort.Value = settings.SshPort;
-                        if (_txtUsername != null) _txtUsername.Text = settings.Username;
-                        if (_txtPassword != null) _txtPassword.Text = settings.Password;
-                        if (_txtStartFreq != null) _txtStartFreq.Value = (decimal)settings.StartFrequency;
-                        if (_txtEndFreq != null) _txtEndFreq.Value = (decimal)settings.EndFrequency;
-                        if (_txtFreqStep != null) _txtFreqStep.Value = (decimal)settings.FrequencyStep;
-                        if (_txtStabilizationTime != null) _txtStabilizationTime.Value = settings.StabilizationTimeMinutes;
-                        if (_txtInterface != null) _txtInterface.Text = settings.InterfaceName;
-                        
-                        // Load WirelessProtocols and ChannelWidths
-                        var txtWirelessProtocols = this.Controls.Find("txtWirelessProtocols", true).FirstOrDefault() as TextBox;
-                        if (txtWirelessProtocols != null && !string.IsNullOrEmpty(settings.WirelessProtocols))
-                        {
-                            txtWirelessProtocols.Text = settings.WirelessProtocols;
-                        }
-                        
-                        var txtChannelWidths = this.Controls.Find("txtChannelWidths", true).FirstOrDefault() as TextBox;
-                        if (txtChannelWidths != null && !string.IsNullOrEmpty(settings.ChannelWidths))
-                        {
-                            txtChannelWidths.Text = settings.ChannelWidths;
-                        }
-                        
-                        // Load commands
-                        if (this.Controls.Find("txtCmdGetFreq", true).FirstOrDefault() is TextBox txtCmdGetFreq)
-                            txtCmdGetFreq.Text = settings.CommandGetFrequency;
-                        if (this.Controls.Find("txtCmdSetFreq", true).FirstOrDefault() is TextBox txtCmdSetFreq)
-                            txtCmdSetFreq.Text = settings.CommandSetFrequency;
-                        if (this.Controls.Find("txtCmdSetProtocol", true).FirstOrDefault() is TextBox txtCmdSetProtocol)
-                            txtCmdSetProtocol.Text = settings.CommandSetWirelessProtocol;
-                        if (this.Controls.Find("txtCmdSetChannelWidth", true).FirstOrDefault() is TextBox txtCmdSetChannelWidth)
-                            txtCmdSetChannelWidth.Text = settings.CommandSetChannelWidth;
-                        if (this.Controls.Find("txtCmdGetInfo", true).FirstOrDefault() is TextBox txtCmdGetInfo)
-                            txtCmdGetInfo.Text = settings.CommandGetInterfaceInfo;
-                        if (this.Controls.Find("txtCmdRegTable", true).FirstOrDefault() is TextBox txtCmdRegTable)
-                            txtCmdRegTable.Text = settings.CommandGetRegistrationTable;
-                        if (this.Controls.Find("txtCmdMonitor", true).FirstOrDefault() is TextBox txtCmdMonitor)
-                            txtCmdMonitor.Text = settings.CommandMonitorInterface;
-                    }
+                    txtWirelessProtocols.Text = settings.WirelessProtocols;
                 }
+                
+                var txtChannelWidths = this.Controls.Find("txtChannelWidths", true).FirstOrDefault() as TextBox;
+                if (txtChannelWidths != null && !string.IsNullOrEmpty(settings.ChannelWidths))
+                {
+                    txtChannelWidths.Text = settings.ChannelWidths;
+                }
+                
+                // Load commands
+                if (this.Controls.Find("txtCmdGetFreq", true).FirstOrDefault() is TextBox txtCmdGetFreq)
+                    txtCmdGetFreq.Text = settings.CommandGetFrequency;
+                if (this.Controls.Find("txtCmdSetFreq", true).FirstOrDefault() is TextBox txtCmdSetFreq)
+                    txtCmdSetFreq.Text = settings.CommandSetFrequency;
+                if (this.Controls.Find("txtCmdSetProtocol", true).FirstOrDefault() is TextBox txtCmdSetProtocol)
+                    txtCmdSetProtocol.Text = settings.CommandSetWirelessProtocol;
+                if (this.Controls.Find("txtCmdSetChannelWidth", true).FirstOrDefault() is TextBox txtCmdSetChannelWidth)
+                    txtCmdSetChannelWidth.Text = settings.CommandSetChannelWidth;
+                if (this.Controls.Find("txtCmdGetInfo", true).FirstOrDefault() is TextBox txtCmdGetInfo)
+                    txtCmdGetInfo.Text = settings.CommandGetInterfaceInfo;
+                if (this.Controls.Find("txtCmdRegTable", true).FirstOrDefault() is TextBox txtCmdRegTable)
+                    txtCmdRegTable.Text = settings.CommandGetRegistrationTable;
+                if (this.Controls.Find("txtCmdMonitor", true).FirstOrDefault() is TextBox txtCmdMonitor)
+                    txtCmdMonitor.Text = settings.CommandMonitorInterface;
+                if (this.Controls.Find("txtCmdValidateInterface", true).FirstOrDefault() is TextBox txtCmdValidateInterface)
+                    txtCmdValidateInterface.Text = settings.CommandValidateInterface;
             }
-            catch { }
+            catch (Exception ex)
+            {
+                ErrorHandler.ShowErrorWithSupport(ex, "بارگذاری تنظیمات", _txtTerminalLog);
+            }
         }
 
+        /// <summary>
+        /// ذخیره تنظیمات از فرم به فایل
+        /// </summary>
         private void SaveSettings()
         {
             try
             {
                 var settings = GetSettingsFromForm();
-                var settingsFile = System.IO.Path.Combine(Application.StartupPath, "settings.json");
-                var json = Newtonsoft.Json.JsonConvert.SerializeObject(settings, Newtonsoft.Json.Formatting.Indented);
-                System.IO.File.WriteAllText(settingsFile, json);
-                MessageBox.Show("تنظیمات ذخیره شد.", "موفق", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                if (_settingsService.SaveSettings(settings))
+                {
+                    MessageBox.Show("تنظیمات ذخیره شد.", "موفق", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                }
+                else
+                {
+                    MessageBox.Show("خطا در ذخیره تنظیمات.", "خطا", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                }
             }
             catch (Exception ex)
             {
-                MessageBox.Show($"خطا در ذخیره تنظیمات: {ex.Message}", "خطا", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                ErrorHandler.ShowErrorWithSupport(ex, "ذخیره تنظیمات", _txtTerminalLog);
             }
         }
 
+        /// <summary>
+        /// بازگردانی تنظیمات به مقادیر پیش‌فرض
+        /// </summary>
         private void ResetToDefaults()
         {
             var result = MessageBox.Show(
@@ -1200,45 +1444,50 @@ namespace Ntk.Mikrotik.Tools
 
             try
             {
-                // Reset to default values based on ScanSettings class defaults
-                if (_txtRouterIp != null) _txtRouterIp.Text = "192.168.88.1";
-                if (_txtSshPort != null) _txtSshPort.Value = 22;
-                if (_txtUsername != null) _txtUsername.Text = "admin";
-                if (_txtPassword != null) _txtPassword.Text = "";
-                if (_txtStartFreq != null) _txtStartFreq.Value = 2400;
-                if (_txtEndFreq != null) _txtEndFreq.Value = 2500;
-                if (_txtFreqStep != null) _txtFreqStep.Value = 1;
-                if (_txtStabilizationTime != null) _txtStabilizationTime.Value = 2;
-                if (_txtInterface != null) _txtInterface.Text = "wlan1";
+                var defaultSettings = _settingsService.GetDefaultSettings();
+                
+                // Apply default values to form
+                if (_txtRouterIp != null) _txtRouterIp.Text = defaultSettings.RouterIpAddress;
+                if (_txtSshPort != null) _txtSshPort.Value = defaultSettings.SshPort;
+                if (_txtUsername != null) _txtUsername.Text = defaultSettings.Username;
+                if (_txtPassword != null) _txtPassword.Text = defaultSettings.Password;
+                if (_txtStartFreq != null) _txtStartFreq.Value = (decimal)defaultSettings.StartFrequency;
+                if (_txtEndFreq != null) _txtEndFreq.Value = (decimal)defaultSettings.EndFrequency;
+                if (_txtFreqStep != null) _txtFreqStep.Value = (decimal)defaultSettings.FrequencyStep;
+                if (_txtStabilizationTime != null) _txtStabilizationTime.Value = defaultSettings.StabilizationTimeMinutes;
+                if (_txtInterface != null) _txtInterface.Text = defaultSettings.InterfaceName;
+                if (_txtPingIp != null) _txtPingIp.Text = defaultSettings.PingTestIpAddress;
 
                 // Reset WirelessProtocols and ChannelWidths
                 var txtWirelessProtocols = this.Controls.Find("txtWirelessProtocols", true).FirstOrDefault() as TextBox;
-                if (txtWirelessProtocols != null) txtWirelessProtocols.Text = "";
+                if (txtWirelessProtocols != null) txtWirelessProtocols.Text = defaultSettings.WirelessProtocols;
 
                 var txtChannelWidths = this.Controls.Find("txtChannelWidths", true).FirstOrDefault() as TextBox;
-                if (txtChannelWidths != null) txtChannelWidths.Text = "";
+                if (txtChannelWidths != null) txtChannelWidths.Text = defaultSettings.ChannelWidths;
 
                 // Reset commands to defaults
                 if (this.Controls.Find("txtCmdGetFreq", true).FirstOrDefault() is TextBox txtCmdGetFreq)
-                    txtCmdGetFreq.Text = "/interface wireless print where name=\"{interface}\" value-name=frequency";
+                    txtCmdGetFreq.Text = defaultSettings.CommandGetFrequency;
                 if (this.Controls.Find("txtCmdSetFreq", true).FirstOrDefault() is TextBox txtCmdSetFreq)
-                    txtCmdSetFreq.Text = "/interface wireless set \"{interface}\" frequency={frequency}";
+                    txtCmdSetFreq.Text = defaultSettings.CommandSetFrequency;
                 if (this.Controls.Find("txtCmdSetProtocol", true).FirstOrDefault() is TextBox txtCmdSetProtocol)
-                    txtCmdSetProtocol.Text = "/interface wireless set \"{interface}\" wireless-protocol={protocol}";
+                    txtCmdSetProtocol.Text = defaultSettings.CommandSetWirelessProtocol;
                 if (this.Controls.Find("txtCmdSetChannelWidth", true).FirstOrDefault() is TextBox txtCmdSetChannelWidth)
-                    txtCmdSetChannelWidth.Text = "/interface wireless set \"{interface}\" channel-width={channelWidth}";
+                    txtCmdSetChannelWidth.Text = defaultSettings.CommandSetChannelWidth;
                 if (this.Controls.Find("txtCmdGetInfo", true).FirstOrDefault() is TextBox txtCmdGetInfo)
-                    txtCmdGetInfo.Text = "/interface wireless print detail where name=\"{interface}\"";
+                    txtCmdGetInfo.Text = defaultSettings.CommandGetInterfaceInfo;
                 if (this.Controls.Find("txtCmdRegTable", true).FirstOrDefault() is TextBox txtCmdRegTable)
-                    txtCmdRegTable.Text = "/interface wireless registration-table print stat where interface=\"{interface}\"";
+                    txtCmdRegTable.Text = defaultSettings.CommandGetRegistrationTable;
                 if (this.Controls.Find("txtCmdMonitor", true).FirstOrDefault() is TextBox txtCmdMonitor)
-                    txtCmdMonitor.Text = "/interface wireless monitor \"{interface}\" once";
+                    txtCmdMonitor.Text = defaultSettings.CommandMonitorInterface;
+                if (this.Controls.Find("txtCmdValidateInterface", true).FirstOrDefault() is TextBox txtCmdValidateInterface)
+                    txtCmdValidateInterface.Text = defaultSettings.CommandValidateInterface;
 
                 MessageBox.Show("تنظیمات به مقادیر پیش‌فرض بازگردانده شد.", "موفق", MessageBoxButtons.OK, MessageBoxIcon.Information);
             }
             catch (Exception ex)
             {
-                MessageBox.Show($"خطا در بازگردانی تنظیمات: {ex.Message}", "خطا", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                ErrorHandler.ShowErrorWithSupport(ex, "بازگردانی تنظیمات", _txtTerminalLog);
             }
         }
 
@@ -1281,9 +1530,7 @@ namespace Ntk.Mikrotik.Tools
                     {
                         if (_txtTerminalLog != null)
                         {
-                            _txtTerminalLog.AppendText($"[{DateTime.Now:HH:mm:ss}] {data}\r\n");
-                            _txtTerminalLog.SelectionStart = _txtTerminalLog.Text.Length;
-                            _txtTerminalLog.ScrollToCaret();
+                            AppendToTerminalLog($"[{DateTime.Now:HH:mm:ss}] {data}\r\n");
                         }
                     });
                 };
@@ -1294,9 +1541,7 @@ namespace Ntk.Mikrotik.Tools
                     {
                         if (_txtTerminalLog != null)
                         {
-                            _txtTerminalLog.AppendText($"[{DateTime.Now:HH:mm:ss}] {data}\r\n");
-                            _txtTerminalLog.SelectionStart = _txtTerminalLog.Text.Length;
-                            _txtTerminalLog.ScrollToCaret();
+                            AppendToTerminalLog($"[{DateTime.Now:HH:mm:ss}] {data}\r\n");
                         }
                     });
                 };
@@ -1316,12 +1561,32 @@ namespace Ntk.Mikrotik.Tools
                     if (btnDisconnect != null) btnDisconnect.Enabled = true;
                     if (_btnStart != null) _btnStart.Enabled = true;
                     
-                    // Enable status button
-                    var btnStatus = this.Controls.Find("btnStatus", true).FirstOrDefault() as Button;
-                    if (btnStatus != null)
+                    // Validate interface name before proceeding
+                    var interfaceValid = await ValidateInterfaceNameAsync(settings.InterfaceName);
+                    if (!interfaceValid)
                     {
-                        btnStatus.Enabled = true;
-                        btnStatus.BackColor = Color.FromArgb(0, 150, 136);
+                        // Interface validation failed - disconnect and show error
+                        _isConnected = false;
+                        if (_lblStatus != null) _lblStatus.Text = "خطا: نام اینترفیس نامعتبر است.";
+                        if (btnConnect != null) btnConnect.Enabled = true;
+                        if (btnDisconnect != null) btnDisconnect.Enabled = false;
+                        if (_btnStart != null) _btnStart.Enabled = false;
+                        
+                        var btnStatus = this.Controls.Find("btnStatus", true).FirstOrDefault() as Button;
+                        if (btnStatus != null) btnStatus.Enabled = false;
+                        
+                        _sshClient?.Disconnect();
+                        _sshClient?.Dispose();
+                        _sshClient = null;
+                        return;
+                    }
+                    
+                    // Enable status button
+                    var btnStatus2 = this.Controls.Find("btnStatus", true).FirstOrDefault() as Button;
+                    if (btnStatus2 != null)
+                    {
+                        btnStatus2.Enabled = true;
+                        btnStatus2.BackColor = Color.FromArgb(0, 150, 136);
                     }
                     
                     // Collect and display base status immediately after connection
@@ -1345,15 +1610,29 @@ namespace Ntk.Mikrotik.Tools
             }
             catch (Exception ex)
             {
-                _isConnected = false;
-                if (_lblStatus != null) _lblStatus.Text = $"خطا: {ex.Message}";
-                if (btnConnect != null) btnConnect.Enabled = true;
-                if (btnDisconnect != null) btnDisconnect.Enabled = false;
-                if (_btnStart != null) _btnStart.Enabled = false;
-                
-                MessageBox.Show($"خطا در اتصال: {ex.Message}", "خطا", MessageBoxButtons.OK, MessageBoxIcon.Error);
-                _sshClient?.Dispose();
-                _sshClient = null;
+                try
+                {
+                    _isConnected = false;
+                    if (_lblStatus != null) _lblStatus.Text = "خطا در اتصال";
+                    if (btnConnect != null) btnConnect.Enabled = true;
+                    if (btnDisconnect != null) btnDisconnect.Enabled = false;
+                    if (_btnStart != null) _btnStart.Enabled = false;
+                    
+                    var btnStatus = this.Controls.Find("btnStatus", true).FirstOrDefault() as Button;
+                    if (btnStatus != null) btnStatus.Enabled = false;
+                    
+                    ErrorHandler.ShowErrorWithSupport(ex, "اتصال به روتر", _txtTerminalLog);
+                    
+                    _sshClient?.Dispose();
+                    _sshClient = null;
+                }
+                catch
+                {
+                    // اگر حتی نمایش خطا هم خطا داد، حداقل اتصال را قطع کن
+                    _isConnected = false;
+                    _sshClient?.Dispose();
+                    _sshClient = null;
+                }
             }
         }
 
@@ -1384,7 +1663,88 @@ namespace Ntk.Mikrotik.Tools
             }
             catch (Exception ex)
             {
-                MessageBox.Show($"خطا در قطع اتصال: {ex.Message}", "خطا", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                ErrorHandler.ShowErrorWithSupport(ex, "قطع اتصال", _txtTerminalLog);
+            }
+        }
+
+        /// <summary>
+        /// اعتبارسنجی نام اینترفیس wireless
+        /// این متد از ConnectionService برای بررسی معتبر بودن نام اینترفیس استفاده می‌کند
+        /// </summary>
+        /// <param name="interfaceName">نام اینترفیس مورد نظر برای بررسی</param>
+        /// <returns>true اگر اینترفیس معتبر باشد، false در غیر این صورت</returns>
+        private async Task<bool> ValidateInterfaceNameAsync(string interfaceName)
+        {
+            try
+            {
+                if (_sshClient == null || !_sshClient.IsConnected)
+                {
+                    return false;
+                }
+
+                if (string.IsNullOrWhiteSpace(interfaceName))
+                {
+                    MessageBox.Show(
+                        "نام اینترفیس خالی است. لطفاً نام اینترفیس را در تنظیمات وارد کنید.",
+                        "خطا: نام اینترفیس نامعتبر",
+                        MessageBoxButtons.OK,
+                        MessageBoxIcon.Warning);
+                    return false;
+                }
+
+                if (_lblStatus != null) _lblStatus.Text = $"در حال بررسی نام اینترفیس '{interfaceName}'...";
+                
+                var settings = GetSettingsFromForm();
+                var interfaceValidationResult = await _connectionService.ValidateInterfaceNameAsync(_sshClient, settings, interfaceName);
+
+                if (!interfaceValidationResult.IsValid)
+                {
+                    if (!string.IsNullOrEmpty(interfaceValidationResult.ErrorMessage))
+                    {
+                        MessageBox.Show(
+                            interfaceValidationResult.ErrorMessage,
+                            "خطا: نام اینترفیس نامعتبر",
+                            MessageBoxButtons.OK,
+                            MessageBoxIcon.Warning);
+                    }
+
+                    if (_txtTerminalLog != null)
+                    {
+                        var availableInterfaces = interfaceValidationResult.AvailableInterfaces.Count > 0 
+                            ? string.Join(", ", interfaceValidationResult.AvailableInterfaces) 
+                            : "(هیچ اینترفیس wireless یافت نشد)";
+                        AppendToTerminalLog($"[{DateTime.Now:HH:mm:ss}] [VALIDATE] ❌ اینترفیس '{interfaceName}' یافت نشد. اینترفیس‌های موجود: {availableInterfaces}\r\n");
+                    }
+
+                    return false;
+                }
+
+                // Interface is valid
+                if (_txtTerminalLog != null)
+                {
+                    AppendToTerminalLog($"[{DateTime.Now:HH:mm:ss}] [VALIDATE] ✅ اینترفیس '{interfaceName}' معتبر است.\r\n");
+                }
+
+                if (_lblStatus != null) _lblStatus.Text = $"اینترفیس '{interfaceName}' معتبر است.";
+                return true;
+            }
+            catch (Exception ex)
+            {
+                try
+                {
+                    if (_txtTerminalLog != null)
+                    {
+                        AppendToTerminalLog($"[{DateTime.Now:HH:mm:ss}] [VALIDATE] ❌ خطا: {ex.Message}\r\n");
+                    }
+                    
+                    ErrorHandler.ShowErrorWithSupport(ex, "بررسی نام اینترفیس", _txtTerminalLog);
+                }
+                catch
+                {
+                    // اگر نمایش خطا هم خطا داد، حداقل false برگردان
+                }
+                
+                return false;
             }
         }
 
@@ -1438,9 +1798,7 @@ namespace Ntk.Mikrotik.Tools
                     {
                         if (_txtTerminalLog != null)
                         {
-                            _txtTerminalLog.AppendText($"[{DateTime.Now:HH:mm:ss}] {data}\r\n");
-                            _txtTerminalLog.SelectionStart = _txtTerminalLog.Text.Length;
-                            _txtTerminalLog.ScrollToCaret();
+                            AppendToTerminalLog($"[{DateTime.Now:HH:mm:ss}] {data}\r\n");
                         }
                     });
                 };
@@ -1517,13 +1875,22 @@ namespace Ntk.Mikrotik.Tools
             }
             catch (Exception ex)
             {
-                this.Invoke((MethodInvoker)delegate
+                try
                 {
-                    if (_lblStatus != null)
+                    this.Invoke((MethodInvoker)delegate
                     {
-                        _lblStatus.Text = $"خطا در دریافت اطلاعات پایه: {ex.Message}";
-                    }
-                });
+                        if (_lblStatus != null)
+                        {
+                            _lblStatus.Text = "خطا در دریافت اطلاعات پایه";
+                        }
+                        ErrorHandler.ShowErrorWithSupport(ex, "دریافت اطلاعات پایه", _txtTerminalLog);
+                    });
+                }
+                catch
+                {
+                    // اگر Invoke خطا داد، حداقل خطا را لاگ کن
+                    ErrorHandler.ShowErrorWithSupport(ex, "دریافت اطلاعات پایه", _txtTerminalLog);
+                }
             }
         }
 
@@ -1658,9 +2025,18 @@ namespace Ntk.Mikrotik.Tools
             }
             catch (Exception ex)
             {
-                if (_lblStatus != null)
-                    _lblStatus.Text = $"خطا: {ex.Message}";
-                MessageBox.Show($"خطا در اسکن: {ex.Message}", "خطا", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                try
+                {
+                    if (_lblStatus != null)
+                        _lblStatus.Text = "خطا در اسکن";
+                    ErrorHandler.ShowErrorWithSupport(ex, "اجرای اسکن", _txtTerminalLog);
+                }
+                catch
+                {
+                    // اگر نمایش خطا هم خطا داد، حداقل وضعیت را به‌روز کن
+                    if (_lblStatus != null)
+                        _lblStatus.Text = "خطا در اسکن";
+                }
             }
             finally
             {
@@ -1744,9 +2120,7 @@ namespace Ntk.Mikrotik.Tools
                         {
                             this.Invoke((MethodInvoker)delegate
                             {
-                                _txtTerminalLog.AppendText($"[{DateTime.Now:HH:mm:ss}] Restore: {command}\r\n");
-                                _txtTerminalLog.SelectionStart = _txtTerminalLog.Text.Length;
-                                _txtTerminalLog.ScrollToCaret();
+                                AppendToTerminalLog($"[{DateTime.Now:HH:mm:ss}] Restore: {command}\r\n");
                             });
                         }
                     }
@@ -1757,9 +2131,7 @@ namespace Ntk.Mikrotik.Tools
                         {
                             this.Invoke((MethodInvoker)delegate
                             {
-                                _txtTerminalLog.AppendText($"[{DateTime.Now:HH:mm:ss}] Error restoring {command}: {ex.Message}\r\n");
-                                _txtTerminalLog.SelectionStart = _txtTerminalLog.Text.Length;
-                                _txtTerminalLog.ScrollToCaret();
+                                AppendToTerminalLog($"[{DateTime.Now:HH:mm:ss}] Error restoring {command}: {ex.Message}\r\n");
                             });
                         }
                     }
@@ -1774,9 +2146,19 @@ namespace Ntk.Mikrotik.Tools
             }
             catch (Exception ex)
             {
-                if (_lblStatus != null)
+                try
                 {
-                    _lblStatus.Text = $"خطا در بازگردانی تنظیمات: {ex.Message}";
+                    if (_lblStatus != null)
+                    {
+                        _lblStatus.Text = "خطا در بازگردانی تنظیمات";
+                    }
+                    ErrorHandler.ShowErrorWithSupport(ex, "بازگردانی تنظیمات پایه", _txtTerminalLog);
+                }
+                catch
+                {
+                    // اگر نمایش خطا هم خطا داد، حداقل وضعیت را به‌روز کن
+                    if (_lblStatus != null)
+                        _lblStatus.Text = "خطا در بازگردانی تنظیمات";
                 }
             }
         }
@@ -1824,9 +2206,7 @@ namespace Ntk.Mikrotik.Tools
                             successCount++;
                             if (_txtTerminalLog != null)
                             {
-                                _txtTerminalLog.AppendText($"[{DateTime.Now:HH:mm:ss}] تست {testCount}: اتصال مجدد موفق ✓\r\n");
-                                _txtTerminalLog.SelectionStart = _txtTerminalLog.Text.Length;
-                                _txtTerminalLog.ScrollToCaret();
+                                AppendToTerminalLog($"[{DateTime.Now:HH:mm:ss}] تست {testCount}: اتصال مجدد موفق ✓\r\n");
                             }
                         }
                         else
@@ -1834,9 +2214,7 @@ namespace Ntk.Mikrotik.Tools
                             failCount++;
                             if (_txtTerminalLog != null)
                             {
-                                _txtTerminalLog.AppendText($"[{DateTime.Now:HH:mm:ss}] تست {testCount}: اتصال مجدد ناموفق ✗\r\n");
-                                _txtTerminalLog.SelectionStart = _txtTerminalLog.Text.Length;
-                                _txtTerminalLog.ScrollToCaret();
+                                AppendToTerminalLog($"[{DateTime.Now:HH:mm:ss}] تست {testCount}: اتصال مجدد ناموفق ✗\r\n");
                             }
                         }
                     }
@@ -1845,9 +2223,7 @@ namespace Ntk.Mikrotik.Tools
                         failCount++;
                         if (_txtTerminalLog != null)
                         {
-                            _txtTerminalLog.AppendText($"[{DateTime.Now:HH:mm:ss}] تست {testCount}: خطا - {ex.Message}\r\n");
-                            _txtTerminalLog.SelectionStart = _txtTerminalLog.Text.Length;
-                            _txtTerminalLog.ScrollToCaret();
+                            AppendToTerminalLog($"[{DateTime.Now:HH:mm:ss}] تست {testCount}: خطا - {ex.Message}\r\n");
                         }
                     }
                     
@@ -1868,9 +2244,7 @@ namespace Ntk.Mikrotik.Tools
                 
                 if (_txtTerminalLog != null)
                 {
-                    _txtTerminalLog.AppendText($"[{DateTime.Now:HH:mm:ss}] {summary}\r\n");
-                    _txtTerminalLog.SelectionStart = _txtTerminalLog.Text.Length;
-                    _txtTerminalLog.ScrollToCaret();
+                    AppendToTerminalLog($"[{DateTime.Now:HH:mm:ss}] {summary}\r\n");
                 }
 
                 if (_lblStatus != null)
@@ -1883,11 +2257,20 @@ namespace Ntk.Mikrotik.Tools
             }
             catch (Exception ex)
             {
-                if (_lblStatus != null)
+                try
                 {
-                    _lblStatus.Text = $"خطا در تست اتصال مجدد: {ex.Message}";
+                    if (_lblStatus != null)
+                    {
+                        _lblStatus.Text = "خطا در تست اتصال مجدد";
+                    }
+                    ErrorHandler.ShowErrorWithSupport(ex, "تست اتصال مجدد", _txtTerminalLog);
                 }
-                MessageBox.Show($"خطا در تست اتصال مجدد: {ex.Message}", "خطا", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                catch
+                {
+                    // اگر نمایش خطا هم خطا داد، حداقل وضعیت را به‌روز کن
+                    if (_lblStatus != null)
+                        _lblStatus.Text = "خطا در تست اتصال مجدد";
+                }
             }
         }
 
@@ -1967,7 +2350,7 @@ namespace Ntk.Mikrotik.Tools
             }
             catch (Exception ex)
             {
-                MessageBox.Show($"خطا در بارگذاری نتایج: {ex.Message}", "خطا", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                ErrorHandler.ShowErrorWithSupport(ex, "بارگذاری نتایج", _txtTerminalLog);
             }
         }
 
@@ -2061,9 +2444,7 @@ namespace Ntk.Mikrotik.Tools
                     {
                         if (_txtTerminalLog != null)
                         {
-                            _txtTerminalLog.AppendText($"[{DateTime.Now:HH:mm:ss}] {data}\r\n");
-                            _txtTerminalLog.SelectionStart = _txtTerminalLog.Text.Length;
-                            _txtTerminalLog.ScrollToCaret();
+                            AppendToTerminalLog($"[{DateTime.Now:HH:mm:ss}] {data}\r\n");
                         }
                     });
                 };
@@ -2152,16 +2533,103 @@ namespace Ntk.Mikrotik.Tools
             }
             catch (Exception ex)
             {
-                if (_lblStatus != null)
+                try
                 {
-                    _lblStatus.Text = $"خطا: {ex.Message}";
+                    if (_lblStatus != null)
+                    {
+                        _lblStatus.Text = "خطا در دریافت وضعیت";
+                    }
+                    ErrorHandler.ShowErrorWithSupport(ex, "دریافت وضعیت", _txtTerminalLog);
                 }
-                MessageBox.Show($"خطا در دریافت وضعیت: {ex.Message}", "خطا", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                catch
+                {
+                    // اگر نمایش خطا هم خطا داد، حداقل وضعیت را به‌روز کن
+                    if (_lblStatus != null)
+                        _lblStatus.Text = "خطا در دریافت وضعیت";
+                }
             }
         }
 
         /// <summary>
-        /// Applies filters to the DataGridView based on filter textboxes
+        /// اضافه کردن متن به لاگ ترمینال با رنگ مناسب
+        /// خطاها با رنگ قرمز و سایر پیام‌ها با رنگ پیش‌فرض نمایش داده می‌شوند
+        /// </summary>
+        /// <param name="text">متن برای اضافه کردن</param>
+        private void AppendToTerminalLog(string text)
+        {
+            if (_txtTerminalLog == null)
+                return;
+
+            try
+            {
+                // تعیین رنگ بر اساس محتوای متن
+                Color textColor = System.Drawing.Color.LimeGreen; // رنگ پیش‌فرض
+                
+                // اگر متن شامل کلمات کلیدی خطا باشد، رنگ قرمز استفاده کن
+                if (text.Contains("[ERROR]") || 
+                    text.Contains("❌") || 
+                    text.Contains("خطا") || 
+                    text.Contains("Error") || 
+                    text.Contains("error") ||
+                    text.Contains("Exception") ||
+                    text.Contains("exception") ||
+                    text.Contains("failed") ||
+                    text.Contains("Failed") ||
+                    text.Contains("ناموفق") ||
+                    text.Contains("✗"))
+                {
+                    textColor = System.Drawing.Color.Red;
+                }
+                else if (text.Contains("✅") || 
+                         text.Contains("موفق") || 
+                         text.Contains("success") || 
+                         text.Contains("Success") ||
+                         text.Contains("Connected successfully") ||
+                         text.Contains("✓"))
+                {
+                    textColor = System.Drawing.Color.LimeGreen;
+                }
+                else if (text.Contains("[SENT]") || text.Contains(">"))
+                {
+                    textColor = System.Drawing.Color.Cyan;
+                }
+                else if (text.Contains("[RECEIVED]"))
+                {
+                    textColor = System.Drawing.Color.Yellow;
+                }
+                else if (text.Contains("[VALIDATE]"))
+                {
+                    textColor = System.Drawing.Color.Orange;
+                }
+
+                // اضافه کردن متن با رنگ مناسب
+                _txtTerminalLog.SelectionStart = _txtTerminalLog.Text.Length;
+                _txtTerminalLog.SelectionLength = 0;
+                _txtTerminalLog.SelectionColor = textColor;
+                _txtTerminalLog.AppendText(text);
+                _txtTerminalLog.SelectionColor = _txtTerminalLog.ForeColor; // بازگشت به رنگ پیش‌فرض
+                _txtTerminalLog.SelectionStart = _txtTerminalLog.Text.Length;
+                _txtTerminalLog.ScrollToCaret();
+            }
+            catch
+            {
+                // اگر خطا در اضافه کردن متن رخ داد، از روش ساده استفاده کن
+                try
+                {
+                    _txtTerminalLog.AppendText(text);
+                    _txtTerminalLog.SelectionStart = _txtTerminalLog.Text.Length;
+                    _txtTerminalLog.ScrollToCaret();
+                }
+                catch
+                {
+                    // Ignore errors
+                }
+            }
+        }
+
+        /// <summary>
+        /// اعمال فیلترها بر روی نتایج نمایش داده شده در DataGridView
+        /// این متد از DataFilterService برای فیلتر کردن نتایج استفاده می‌کند
         /// </summary>
         private void ApplyFilters()
         {
@@ -2173,32 +2641,20 @@ namespace Ntk.Mikrotik.Tools
                 // Clear current results
                 _currentResults.Clear();
 
-                // Apply filters
-                var filteredResults = _allResults.Where(result =>
+                // Build filters dictionary
+                var filters = new Dictionary<string, string>();
+                foreach (var filterPair in _filterTextBoxes)
                 {
-                    foreach (var filterPair in _filterTextBoxes)
+                    var propertyName = filterPair.Key;
+                    var filterText = filterPair.Value.Text?.Trim() ?? "";
+                    if (!string.IsNullOrEmpty(filterText))
                     {
-                        var propertyName = filterPair.Key; // This is now the property name, not column name
-                        var filterText = filterPair.Value.Text.Trim();
-                        
-                        if (string.IsNullOrEmpty(filterText))
-                            continue;
-
-                        var property = typeof(FrequencyScanResult).GetProperty(propertyName, System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Instance);
-                        if (property == null)
-                            continue;
-
-                        var value = property.GetValue(result);
-                        var valueStr = value?.ToString() ?? "";
-
-                        // Case-insensitive contains search
-                        if (!valueStr.Contains(filterText, StringComparison.OrdinalIgnoreCase))
-                        {
-                            return false;
-                        }
+                        filters[propertyName] = filterText;
                     }
-                    return true;
-                }).ToList();
+                }
+
+                // Apply filters using DataFilterService
+                var filteredResults = _dataFilterService.ApplyFilters(_allResults, filters);
 
                 // Add filtered results
                 foreach (var result in filteredResults)

@@ -9,13 +9,125 @@ namespace Ntk.Mikrotik.Tools
         [STAThread]
         static void Main()
         {
-            Application.EnableVisualStyles();
-            Application.SetCompatibleTextRenderingDefault(false);
-            
-            // Try to set application icon before creating main form
-            SetApplicationIcon();
-            
-            Application.Run(new MainForm());
+            try
+            {
+                Application.EnableVisualStyles();
+                Application.SetCompatibleTextRenderingDefault(false);
+                
+                // Set up global exception handler BEFORE creating any forms or controls
+                // This must be done before any Controls are created
+                Application.SetUnhandledExceptionMode(UnhandledExceptionMode.CatchException);
+                Application.ThreadException += (sender, e) =>
+                {
+                    try
+                    {
+                        var errorMessage = $"خطا در برنامه:\n\n{e.Exception.Message}";
+                        
+                        if (e.Exception.InnerException != null)
+                        {
+                            errorMessage += $"\n\nخطای داخلی: {e.Exception.InnerException.Message}";
+                        }
+                        
+                        errorMessage += $"\n\nنوع خطا: {e.Exception.GetType().Name}";
+                        
+                        if (!string.IsNullOrEmpty(e.Exception.StackTrace))
+                        {
+                            errorMessage += $"\n\nجزئیات فنی:\n{e.Exception.StackTrace.Substring(0, Math.Min(500, e.Exception.StackTrace.Length))}...";
+                        }
+                        
+                        errorMessage += "\n\n⚠️ اگر مشکل ادامه داشت، لطفاً این پیام را به پشتیبانی اطلاع دهید.";
+                        
+                        MessageBox.Show(
+                            errorMessage,
+                            "خطای غیرمنتظره در برنامه",
+                            MessageBoxButtons.OK,
+                            MessageBoxIcon.Error);
+                    }
+                    catch
+                    {
+                        // If even showing error fails, try simple message
+                        try
+                        {
+                            MessageBox.Show(
+                                $"خطای غیرمنتظره رخ داد. لطفاً به پشتیبانی اطلاع دهید.\n\n{e.Exception.Message}",
+                                "خطا",
+                                MessageBoxButtons.OK,
+                                MessageBoxIcon.Error);
+                        }
+                        catch
+                        {
+                            // Ignore - prevent crash
+                        }
+                    }
+                };
+                
+                AppDomain.CurrentDomain.UnhandledException += (sender, e) =>
+                {
+                    try
+                    {
+                        if (e.ExceptionObject is Exception ex)
+                        {
+                            var errorMessage = $"خطا در دامنه برنامه:\n\n{ex.Message}";
+                            
+                            if (ex.InnerException != null)
+                            {
+                                errorMessage += $"\n\nخطای داخلی: {ex.InnerException.Message}";
+                            }
+                            
+                            errorMessage += $"\n\nنوع خطا: {ex.GetType().Name}";
+                            
+                            if (!string.IsNullOrEmpty(ex.StackTrace))
+                            {
+                                errorMessage += $"\n\nجزئیات فنی:\n{ex.StackTrace.Substring(0, Math.Min(500, ex.StackTrace.Length))}...";
+                            }
+                            
+                            errorMessage += "\n\n⚠️ اگر مشکل ادامه داشت، لطفاً این پیام را به پشتیبانی اطلاع دهید.";
+                            
+                            MessageBox.Show(
+                                errorMessage,
+                                "خطای غیرمنتظره در دامنه برنامه",
+                                MessageBoxButtons.OK,
+                                MessageBoxIcon.Error);
+                        }
+                    }
+                    catch
+                    {
+                        // Ignore errors in exception handler
+                    }
+                };
+                
+                // Try to set application icon before creating main form
+                SetApplicationIcon();
+                
+                Application.Run(new MainForm());
+            }
+            catch (Exception ex)
+            {
+                // Global exception handler - prevent application crash
+                var errorMessage = $"خطای غیرمنتظره در برنامه:\n\n{ex.Message}\n\n" +
+                                  $"نوع خطا: {ex.GetType().Name}\n\n" +
+                                  $"لطفاً این پیام را به پشتیبانی اطلاع دهید.";
+                
+                MessageBox.Show(
+                    errorMessage,
+                    "خطای برنامه",
+                    MessageBoxButtons.OK,
+                    MessageBoxIcon.Error);
+                
+                // Log to file if possible
+                try
+                {
+                    var logPath = System.IO.Path.Combine(
+                        Application.StartupPath,
+                        $"error_{DateTime.Now:yyyyMMdd_HHmmss}.log");
+                    System.IO.File.WriteAllText(logPath, 
+                        $"Error: {ex}\n\nStack Trace:\n{ex.StackTrace}");
+                }
+                catch
+                {
+                    // Ignore log file errors
+                }
+            }
         }
         
         private static void SetApplicationIcon()

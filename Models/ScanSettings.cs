@@ -8,7 +8,7 @@ namespace Ntk.Mikrotik.Tools.Models
         public string Password { get; set; } = "";
         public double StartFrequency { get; set; } = 2400;
         public double EndFrequency { get; set; } = 2500;
-        public double FrequencyStep { get; set; } = 1;
+        public double FrequencyStep { get; set; } = 5;
         public int StabilizationTimeMinutes { get; set; } = 2;
         public string InterfaceName { get; set; } = "wlan1";
         
@@ -24,6 +24,10 @@ namespace Ntk.Mikrotik.Tools.Models
         public string CommandGetInterfaceInfo { get; set; } = "/interface wireless print detail where name=\"{interface}\"";
         public string CommandGetRegistrationTable { get; set; } = "/interface wireless registration-table print stat where interface=\"{interface}\"";
         public string CommandMonitorInterface { get; set; } = "/interface wireless monitor \"{interface}\" once";
+        public string CommandValidateInterface { get; set; } = "/interface wireless print";
+        
+        // Ping Test Settings
+        public string PingTestIpAddress { get; set; } = "8.8.8.8";
     }
 }
 

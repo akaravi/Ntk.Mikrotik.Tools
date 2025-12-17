@@ -68,6 +68,18 @@ namespace Ntk.Mikrotik.Tools.Models
         public bool? RemoteCompression { get; set; }
         public bool? RemoteWmmEnabled { get; set; }
         public string? RemoteTxRateSet { get; set; }
+        
+        // Ping Test Results
+        public bool? PingSuccess { get; set; }
+        public long? PingTime { get; set; } // in milliseconds
+        public int? PingPacketsSent { get; set; }
+        public int? PingPacketsReceived { get; set; }
+        public int? PingPacketsLost { get; set; }
+        public double? PingLossPercentage { get; set; }
+        public long? PingMinTime { get; set; }
+        public long? PingMaxTime { get; set; }
+        public long? PingAverageTime { get; set; }
+        public string? PingTestIpAddress { get; set; }
     }
 }
 

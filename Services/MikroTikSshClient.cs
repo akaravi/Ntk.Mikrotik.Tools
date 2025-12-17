@@ -24,7 +24,7 @@ namespace Ntk.Mikrotik.Tools.Services
 
         public bool IsConnected => _sshClient?.IsConnected ?? false;
 
-        public async Task<bool> ConnectAsync(string host, int port, string username, string password, int timeoutSeconds = 10)
+        public async Task<bool> ConnectAsync(string host, int port, string username, string password, int timeoutSeconds = 30)
         {
             try
             {
@@ -43,11 +43,41 @@ namespace Ntk.Mikrotik.Tools.Services
                 };
 
                 _sshClient = new SshClient(connectionInfo);
-                await Task.Run(() => _sshClient.Connect());
+                
+                // Connect synchronously within Task.Run to avoid blocking UI thread
+                // Use GetAwaiter().GetResult() pattern to properly unwrap exceptions
+                try
+                {
+                    await Task.Run(() =>
+                    {
+                        try
+                        {
+                            _sshClient.Connect();
+                        }
+                        catch
+                        {
+                            // Preserve all exceptions as-is through Task.Run
+                            // This ensures SocketException and other exceptions are properly propagated
+                            throw;
+                        }
+                    });
+                }
+                catch (AggregateException aggEx)
+                {
+                    // Unwrap AggregateException from Task.Run
+                    // Get the first inner exception (usually the real exception)
+                    var innerEx = aggEx.Flatten().InnerExceptions.Count > 0 
+                        ? aggEx.Flatten().InnerExceptions[0] 
+                        : aggEx.InnerException ?? aggEx;
+                    
+                    // Re-throw the inner exception to be caught by outer catch blocks
+                    throw innerEx;
+                }
 
                 if (!_sshClient.IsConnected)
                 {
                     OnDataReceived("Connection failed!");
+                    Disconnect();
                     return false;
                 }
 
@@ -68,13 +98,90 @@ namespace Ntk.Mikrotik.Tools.Services
                 // This is normal behavior, not necessarily an error
                 return true;
             }
+            catch (Renci.SshNet.Common.SshOperationTimeoutException ex)
+            {
+                var errorMsg = $"⏱️ خطا: اتصال به روتر در زمان تعیین شده ({timeoutSeconds} ثانیه) برقرار نشد.\n\n" +
+                              $"🔍 لطفاً موارد زیر را بررسی کنید:\n" +
+                              $"1. آدرس IP روتر صحیح است\n" +
+                              $"2. پورت SSH ({port}) صحیح است\n" +
+                              $"3. روتر روشن است و به شبکه متصل است\n" +
+                              $"4. فایروال یا آنتی‌ویروس مانع اتصال نمی‌شود\n" +
+                              $"5. شبکه شما به درستی کار می‌کند\n\n" +
+                              $"📋 جزئیات فنی: {ex.Message}\n\n" +
+                              $"💡 پیشنهاد: اگر شبکه شما کند است، می‌توانید timeout را در تنظیمات افزایش دهید.\n\n" +
+                              $"⚠️ اگر مشکل ادامه داشت، لطفاً این پیام را به پشتیبانی اطلاع دهید.";
+                OnDataReceived($"[ERROR] {errorMsg}");
+                Disconnect();
+                return false;
+            }
+            catch (System.Net.Sockets.SocketException ex)
+            {
+                var errorMsg = $"🔌 خطا در اتصال شبکه:\n\n" +
+                              $"📋 جزئیات: {ex.Message}\n" +
+                              $"🔢 کد خطا: {ex.ErrorCode}\n\n" +
+                              $"🔍 لطفاً موارد زیر را بررسی کنید:\n" +
+                              $"1. آدرس IP روتر ({host}:{port}) صحیح است\n" +
+                              $"2. روتر روشن است و به شبکه متصل است\n" +
+                              $"3. پورت SSH ({port}) باز است و فایروال مانع نمی‌شود\n" +
+                              $"4. اتصال شبکه شما فعال است\n" +
+                              $"5. روتر در همان شبکه یا قابل دسترسی است\n\n" +
+                              $"💡 اگر با برنامه‌های دیگر اتصال برقرار می‌شود، ممکن است مشکل از تنظیمات timeout یا نحوه اتصال باشد.\n\n" +
+                              $"⚠️ اگر مشکل ادامه داشت، لطفاً این پیام را به پشتیبانی اطلاع دهید.";
+                OnDataReceived($"[ERROR] {errorMsg}");
+                Disconnect();
+                return false;
+            }
+            catch (InvalidOperationException ex) when (ex.InnerException is System.Net.Sockets.SocketException)
+            {
+                // Handle wrapped SocketException
+                var socketEx = ex.InnerException as System.Net.Sockets.SocketException;
+                var errorMsg = $"🔌 خطا در اتصال شبکه:\n\n" +
+                              $"📋 جزئیات: {ex.Message}\n" +
+                              $"🔢 کد خطا: {socketEx?.ErrorCode ?? 0}\n\n" +
+                              $"🔍 لطفاً موارد زیر را بررسی کنید:\n" +
+                              $"1. آدرس IP روتر ({host}:{port}) صحیح است\n" +
+                              $"2. روتر روشن است و به شبکه متصل است\n" +
+                              $"3. پورت SSH ({port}) باز است و فایروال مانع نمی‌شود\n" +
+                              $"4. اتصال شبکه شما فعال است\n" +
+                              $"5. روتر در همان شبکه یا قابل دسترسی است\n\n" +
+                              $"💡 اگر با برنامه‌های دیگر اتصال برقرار می‌شود، ممکن است مشکل از تنظیمات timeout یا نحوه اتصال باشد.\n\n" +
+                              $"⚠️ اگر مشکل ادامه داشت، لطفاً این پیام را به پشتیبانی اطلاع دهید.";
+                OnDataReceived($"[ERROR] {errorMsg}");
+                Disconnect();
+                return false;
+            }
+            catch (Renci.SshNet.Common.SshConnectionException ex)
+            {
+                var errorMsg = $"خطا: مشکل در برقراری اتصال SSH.\n" +
+                              $"لطفاً مطمئن شوید که:\n" +
+                              $"1. روتر روشن است\n" +
+                              $"2. SSH فعال است\n" +
+                              $"3. IP و پورت صحیح است\n\n" +
+                              $"جزئیات: {ex.Message}\n\n" +
+                              $"اگر مشکل ادامه داشت، لطفاً به پشتیبانی اطلاع دهید.";
+                OnDataReceived($"[ERROR] {errorMsg}");
+                Disconnect();
+                return false;
+            }
+            catch (Renci.SshNet.Common.SshAuthenticationException ex)
+            {
+                var errorMsg = $"خطا: نام کاربری یا رمز عبور اشتباه است.\n\n" +
+                              $"جزئیات: {ex.Message}\n\n" +
+                              $"اگر مشکل ادامه داشت، لطفاً به پشتیبانی اطلاع دهید.";
+                OnDataReceived($"[ERROR] {errorMsg}");
+                Disconnect();
+                return false;
+            }
             catch (Exception ex)
             {
-                OnDataReceived($"Connection error: {ex.Message}");
+                var errorMsg = $"خطا در اتصال: {ex.Message}";
                 if (ex.InnerException != null)
                 {
-                    OnDataReceived($"Inner exception: {ex.InnerException.Message}");
+                    errorMsg += $"\nخطای داخلی: {ex.InnerException.Message}";
                 }
+                errorMsg += $"\n\nنوع خطا: {ex.GetType().Name}\n\n" +
+                           $"اگر مشکل ادامه داشت، لطفاً به پشتیبانی اطلاع دهید.";
+                OnDataReceived($"[ERROR] {errorMsg}");
                 Disconnect();
                 return false;
             }
@@ -154,15 +261,36 @@ namespace Ntk.Mikrotik.Tools.Services
                 // Empty response doesn't necessarily mean error in RouterOS
                 return fullResponse;
             }
+            catch (Renci.SshNet.Common.SshOperationTimeoutException ex)
+            {
+                var errorMsg = $"خطا: کامند در زمان تعیین شده اجرا نشد.\n" +
+                              $"کامند: {command}\n" +
+                              $"جزئیات: {ex.Message}\n\n" +
+                              $"اگر مشکل ادامه داشت، لطفاً به پشتیبانی اطلاع دهید.";
+                OnDataReceived($"[ERROR] {errorMsg}");
+                return string.Empty; // Return empty instead of throwing
+            }
+            catch (Renci.SshNet.Common.SshConnectionException ex)
+            {
+                var errorMsg = $"خطا: اتصال SSH قطع شده است.\n" +
+                              $"کامند: {command}\n" +
+                              $"جزئیات: {ex.Message}\n\n" +
+                              $"اگر مشکل ادامه داشت، لطفاً به پشتیبانی اطلاع دهید.";
+                OnDataReceived($"[ERROR] {errorMsg}");
+                return string.Empty; // Return empty instead of throwing
+            }
             catch (Exception ex)
             {
-                var errorMsg = $"Error sending command: {ex.Message}";
-                OnDataReceived(errorMsg);
+                var errorMsg = $"خطا در اجرای کامند: {ex.Message}";
                 if (ex.InnerException != null)
                 {
-                    OnDataReceived($"Inner exception: {ex.InnerException.Message}");
+                    errorMsg += $"\nخطای داخلی: {ex.InnerException.Message}";
                 }
-                throw new Exception(errorMsg, ex);
+                errorMsg += $"\nکامند: {command}\n" +
+                           $"نوع خطا: {ex.GetType().Name}\n\n" +
+                           $"اگر مشکل ادامه داشت، لطفاً به پشتیبانی اطلاع دهید.";
+                OnDataReceived($"[ERROR] {errorMsg}");
+                return string.Empty; // Return empty instead of throwing
             }
         }
 

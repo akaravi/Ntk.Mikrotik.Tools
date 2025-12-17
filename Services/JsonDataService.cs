@@ -13,10 +13,43 @@ namespace Ntk.Mikrotik.Tools.Services
 
         public JsonDataService()
         {
-            _dataDirectory = Path.Combine(Application.StartupPath, "ScanResults");
-            if (!Directory.Exists(_dataDirectory))
+            try
             {
-                Directory.CreateDirectory(_dataDirectory);
+                var startupPath = Application.StartupPath;
+                if (string.IsNullOrEmpty(startupPath))
+                {
+                    startupPath = AppDomain.CurrentDomain.BaseDirectory;
+                }
+                if (string.IsNullOrEmpty(startupPath))
+                {
+                    startupPath = Directory.GetCurrentDirectory();
+                }
+                _dataDirectory = Path.Combine(startupPath, "ScanResults");
+                if (!Directory.Exists(_dataDirectory))
+                {
+                    Directory.CreateDirectory(_dataDirectory);
+                }
+            }
+            catch
+            {
+                // Fallback to current directory if all else fails
+                _dataDirectory = Path.Combine(Directory.GetCurrentDirectory(), "ScanResults");
+                try
+                {
+                    if (!Directory.Exists(_dataDirectory))
+                    {
+                        Directory.CreateDirectory(_dataDirectory);
+                    }
+                }
+                catch
+                {
+                    // If we can't create directory, use temp directory as last resort
+                    _dataDirectory = Path.Combine(Path.GetTempPath(), "NtkMikrotikTools", "ScanResults");
+                    if (!Directory.Exists(_dataDirectory))
+                    {
+                        Directory.CreateDirectory(_dataDirectory);
+                    }
+                }
             }
         }
 
