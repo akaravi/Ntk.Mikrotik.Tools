@@ -5,6 +5,10 @@ on:
     branches:
       - publish
 
+permissions:
+  contents: write
+  pull-requests: read
+
 jobs:
   build-and-release:
     runs-on: windows-latest
@@ -12,6 +16,9 @@ jobs:
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+        token: ${{ secrets.GITHUB_TOKEN }}
       
     - name: Setup .NET
       uses: actions/setup-dotnet@v4
@@ -112,6 +119,7 @@ jobs:
           ./artifacts/win-x64-framework-dependent.zip
         draft: false
         prerelease: false
+        generate_release_notes: false
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
