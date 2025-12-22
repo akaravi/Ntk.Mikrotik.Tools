@@ -1,0 +1,117 @@
+name: Build and Release
+
+on:
+  push:
+    branches:
+      - publish
+
+jobs:
+  build-and-release:
+    runs-on: windows-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Setup .NET
+      uses: actions/setup-dotnet@v4
+      with:
+        dotnet-version: '8.0.x'
+        
+    - name: Restore dependencies
+      run: dotnet restore
+      
+    - name: Build win-x86 self-contained
+      run: |
+        dotnet publish -c Release -r win-x86 --self-contained true -p:PublishSingleFile=false -o ./publish/win-x86-self-contained
+        
+    - name: Build win-x64 self-contained
+      run: |
+        dotnet publish -c Release -r win-x64 --self-contained true -p:PublishSingleFile=false -o ./publish/win-x64-self-contained
+        
+    - name: Build win-x86 framework-dependent
+      run: |
+        dotnet publish -c Release -r win-x86 --self-contained false -o ./publish/win-x86-framework-dependent
+        
+    - name: Build win-x64 framework-dependent
+      run: |
+        dotnet publish -c Release -r win-x64 --self-contained false -o ./publish/win-x64-framework-dependent
+        
+    - name: Create artifacts directory
+      shell: pwsh
+      run: |
+        New-Item -ItemType Directory -Force -Path ./artifacts | Out-Null
+        
+    - name: Create ZIP archives
+      shell: pwsh
+      run: |
+        # Create ZIP files preserving directory structure
+        $compressParams = @{
+          Path = './publish/win-x86-self-contained'
+          DestinationPath = './artifacts/win-x86-self-contained.zip'
+          CompressionLevel = 'Optimal'
+          Force = $true
+        }
+        Compress-Archive @compressParams
+        
+        $compressParams.DestinationPath = './artifacts/win-x64-self-contained.zip'
+        $compressParams.Path = './publish/win-x64-self-contained'
+        Compress-Archive @compressParams
+        
+        $compressParams.DestinationPath = './artifacts/win-x86-framework-dependent.zip'
+        $compressParams.Path = './publish/win-x86-framework-dependent'
+        Compress-Archive @compressParams
+        
+        $compressParams.DestinationPath = './artifacts/win-x64-framework-dependent.zip'
+        $compressParams.Path = './publish/win-x64-framework-dependent'
+        Compress-Archive @compressParams
+        
+    - name: Get version from project
+      id: get_version
+      shell: pwsh
+      run: |
+        # Extract version from .csproj file
+        $csprojContent = Get-Content -Path "Ntk.Mikrotik.Tools.csproj" -Raw
+        $versionMatch = [regex]::Match($csprojContent, '<Version>(.*?)</Version>')
+        if ($versionMatch.Success) {
+          $projectVersion = $versionMatch.Groups[1].Value
+        } else {
+          $projectVersion = "1.0.0"
+        }
+        
+        # Create version tag with commit hash
+        $commitSha = "${{ github.sha }}".Substring(0, 7)
+        $versionTag = "$projectVersion-$commitSha"
+        echo "VERSION=$versionTag" >> $env:GITHUB_ENV
+        echo "version=$versionTag" >> $env:GITHUB_OUTPUT
+        echo "PROJECT_VERSION=$projectVersion" >> $env:GITHUB_ENV
+        
+    - name: Create Release
+      uses: softprops/action-gh-release@v1
+      with:
+        tag_name: v${{ steps.get_version.outputs.version }}
+        name: Release v${{ steps.get_version.outputs.version }}
+        body: |
+          ## نسخه ${{ steps.get_version.outputs.version }}
+          
+          این نسخه شامل 4 نسخه مختلف برای دانلود است:
+          
+          - **win-x86 self-contained**: نسخه مستقل برای Windows x86 (نیاز به نصب .NET ندارد)
+          - **win-x64 self-contained**: نسخه مستقل برای Windows x64 (نیاز به نصب .NET ندارد)
+          - **win-x86 framework-dependent**: نسخه وابسته به .NET Framework برای Windows x86
+          - **win-x64 framework-dependent**: نسخه وابسته به .NET Framework برای Windows x64
+          
+          ### تغییرات
+          - Commit: ${{ github.sha }}
+          - Branch: ${{ github.ref_name }}
+          - تاریخ: ${{ github.event.head_commit.timestamp }}
+        files: |
+          ./artifacts/win-x86-self-contained.zip
+          ./artifacts/win-x64-self-contained.zip
+          ./artifacts/win-x86-framework-dependent.zip
+          ./artifacts/win-x64-framework-dependent.zip
+        draft: false
+        prerelease: false
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+

@@ -2375,9 +2375,35 @@ namespace Ntk.Mikrotik.Tools
 
             var developerName = Environment.UserName;
             var projectLocation = AppDomain.CurrentDomain.BaseDirectory;
+            var appVersion = System.Reflection.Assembly.GetExecutingAssembly().GetName().Version?.ToString() ?? 
+                           Application.ProductVersion ?? 
+                           "1.0.0";
 
             AddInfoRow("AboutProjectName", "AboutProjectValue");
-            AddInfoRow("AboutVersion", "Application.ProductVersion");
+            
+            // Add version row separately to show actual version number
+            var versionTitleLabel = new Label
+            {
+                Text = loc.GetString("AboutVersion", "نسخه برنامه"),
+                TextAlign = System.Drawing.ContentAlignment.MiddleRight,
+                Dock = DockStyle.Fill,
+                AutoSize = true,
+                Font = new System.Drawing.Font("Tahoma", 9F, System.Drawing.FontStyle.Bold)
+            };
+            var versionValueLabel = new Label
+            {
+                Text = appVersion,
+                TextAlign = System.Drawing.ContentAlignment.MiddleLeft,
+                Dock = DockStyle.Fill,
+                AutoSize = true,
+                MaximumSize = new Size(900, 0),
+                AutoEllipsis = true
+            };
+            var versionRowIndex = infoLayout.RowCount++;
+            infoLayout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+            infoLayout.Controls.Add(versionTitleLabel, 0, versionRowIndex);
+            infoLayout.Controls.Add(versionValueLabel, 1, versionRowIndex);
+            
             AddInfoRow("AboutPlatform", "AboutPlatformValue");
             AddInfoRow("AboutDeveloper", "AboutDeveloperValue");
             AddInfoRow("AboutContactEmails", "AboutContactEmailsValue");

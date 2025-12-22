@@ -1,0 +1,75 @@
+name: Test Build
+
+on:
+  push:
+    branches:
+      - main
+      - master
+      - develop
+  pull_request:
+    branches:
+      - main
+      - master
+      - develop
+  workflow_dispatch:
+
+jobs:
+  test-build:
+    runs-on: windows-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Setup .NET
+      uses: actions/setup-dotnet@v4
+      with:
+        dotnet-version: '8.0.x'
+        
+    - name: Restore dependencies
+      run: dotnet restore
+      
+    - name: Build project
+      run: dotnet build -c Release --no-restore
+      
+    - name: Test win-x86 self-contained build
+      run: |
+        dotnet publish -c Release -r win-x86 --self-contained true -p:PublishSingleFile=false -o ./test-publish/win-x86-self-contained
+        
+    - name: Test win-x64 self-contained build
+      run: |
+        dotnet publish -c Release -r win-x64 --self-contained true -p:PublishSingleFile=false -o ./test-publish/win-x64-self-contained
+        
+    - name: Test win-x86 framework-dependent build
+      run: |
+        dotnet publish -c Release -r win-x86 --self-contained false -o ./test-publish/win-x86-framework-dependent
+        
+    - name: Test win-x64 framework-dependent build
+      run: |
+        dotnet publish -c Release -r win-x64 --self-contained false -o ./test-publish/win-x64-framework-dependent
+        
+    - name: Get version from project
+      id: get_version
+      shell: pwsh
+      run: |
+        $csprojContent = Get-Content -Path "Ntk.Mikrotik.Tools.csproj" -Raw
+        $versionMatch = [regex]::Match($csprojContent, '<Version>(.*?)</Version>')
+        if ($versionMatch.Success) {
+          $projectVersion = $versionMatch.Groups[1].Value
+        } else {
+          $projectVersion = "1.0.0"
+        }
+        echo "version=$projectVersion" >> $env:GITHUB_OUTPUT
+        
+    - name: Build Summary
+      shell: pwsh
+      run: |
+        Write-Host "✅ Build completed successfully!"
+        Write-Host "Version: ${{ steps.get_version.outputs.version }}"
+        Write-Host ""
+        Write-Host "Built versions:"
+        Write-Host "  - win-x86 self-contained"
+        Write-Host "  - win-x64 self-contained"
+        Write-Host "  - win-x86 framework-dependent"
+        Write-Host "  - win-x64 framework-dependent"
+
